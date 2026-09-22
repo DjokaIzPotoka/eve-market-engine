@@ -2,6 +2,7 @@
 broker_relations = 0
 accounting = 0
 margin_trading = 0
+advanced_broker_relations = 0
 
 [standings]
 faction = 0.0
@@ -43,3 +44,23 @@ near_top_pct = 0.05
 [fill]
 max_gap_minutes = 60
 fill_plausibility_factor = 1.0
+
+[fees]
+# NPC station broker fee: 3% - 0.3%/BR level - 0.03%/faction standing - 0.02%/corp standing,
+# floored at 1%. Source: EVE University wiki (Trading, Tax), post-2022 CCP rework.
+broker_fee_base_pct = 3.0
+broker_relations_reduction_pct_per_level = 0.3
+faction_standing_reduction_pct_per_point = 0.03
+corp_standing_reduction_pct_per_point = 0.02
+broker_fee_min_pct = 1.0
+broker_fee_min_isk = 100.0
+# Upwell structure broker fee: 0.5% + owner%; skills/standings do not apply.
+structure_broker_fee_base_pct = 0.5
+structure_owner_fee_pct = 0.0
+# Sales tax: 7.5% * (1 - 0.11 * Accounting level); 3.375% at Accounting V.
+sales_tax_base_pct = 7.5
+accounting_reduction_fraction_per_level = 0.11
+# Relist (order modification) discount: 50% + 6%/Advanced Broker Relations level.
+relist_discount_base_pct = 50.0
+relist_discount_pct_per_adv_br_level = 6.0
+relist_fee_min_isk = 100.0

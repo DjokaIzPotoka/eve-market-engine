@@ -25,6 +25,7 @@ class Skills(BaseModel):
     broker_relations: SkillLevel = 0
     accounting: SkillLevel = 0
     margin_trading: SkillLevel = 0
+    advanced_broker_relations: SkillLevel = 0
 
 
 class Standings(BaseModel):
@@ -77,6 +78,28 @@ class Fill(BaseModel):
     fill_plausibility_factor: Annotated[float, Field(gt=0)] = 1.0
 
 
+class Fees(BaseModel):
+    """All percentages are plain numbers (3.0 = 3%), except the accounting fraction (a
+    per-level multiplier). Defaults match the current (post-2022-rework) CCP formulas --
+    see src/eve/fees/fees.py for the formulas themselves."""
+
+    broker_fee_base_pct: Positive = 3.0
+    broker_relations_reduction_pct_per_level: NonNegative = 0.3
+    faction_standing_reduction_pct_per_point: NonNegative = 0.03
+    corp_standing_reduction_pct_per_point: NonNegative = 0.02
+    broker_fee_min_pct: Positive = 1.0
+    broker_fee_min_isk: Positive = 100.0
+    structure_broker_fee_base_pct: NonNegative = 0.5
+    # The structure owner's own cut is unknowable without authenticated ESI (out of v1
+    # scope per CLAUDE.md) -- this is an assumed default, override per-call if known.
+    structure_owner_fee_pct: NonNegative = 0.0
+    sales_tax_base_pct: Positive = 7.5
+    accounting_reduction_fraction_per_level: Annotated[float, Field(ge=0, le=1)] = 0.11
+    relist_discount_base_pct: NonNegative = 50.0
+    relist_discount_pct_per_adv_br_level: NonNegative = 6.0
+    relist_fee_min_isk: Positive = 100.0
+
+
 class Settings(BaseSettings):
     """Top-level settings, sourced from `config/settings.toml` (see DEFAULT_CONFIG_PATH).
 
@@ -95,6 +118,7 @@ class Settings(BaseSettings):
     storage: Storage
     features: Features
     fill: Fill
+    fees: Fees
 
     @classmethod
     def settings_customise_sources(
