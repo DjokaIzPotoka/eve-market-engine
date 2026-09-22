@@ -64,6 +64,7 @@ class Storage(BaseModel):
     raw_data_dir: str = "data/raw"
     duckdb_path: str = "data/eve.duckdb"
     retention_days: Annotated[int, Field(ge=1)] = 30
+    sde_dir: str = "data/sde"
 
 
 class Settings(BaseSettings):

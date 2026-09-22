@@ -34,3 +34,4 @@ error_limit_threshold = 10
 raw_data_dir = "data/raw"
 duckdb_path = "data/eve.duckdb"
 retention_days = 30
+sde_dir = "data/sde"

@@ -39,6 +39,10 @@ class EsiClient:
         self._error_limit_remain: int | None = None
         self._error_limit_reset: float | None = None
 
+    @property
+    def max_concurrency(self) -> int:
+        return self._settings.max_concurrency
+
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
@@ -131,3 +135,23 @@ class EsiClient:
                 expires_values.append(self._parse_expires(response))
 
         return RegionOrdersResult(orders=orders, expires_at=min(expires_values))
+
+    async def get_json(self, path: str, *, params: dict | None = None) -> dict | list:
+        """Generic single-object GET (e.g. `/universe/stations/{id}/`).
+
+        A 404 propagates as `httpx.HTTPStatusError` for the caller to handle.
+        """
+        response = await self._request("GET", path, params=params)
+        return response.json()
+
+    async def fetch_history(self, region_id: int, type_id: int) -> list[dict]:
+        """Fetch daily market history for a type; a 404 (no history) yields an empty list."""
+        try:
+            response = await self._request(
+                "GET", f"/markets/{region_id}/history/", params={"type_id": type_id}
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return []
+            raise
+        return response.json()

@@ -1,0 +1,36 @@
+{
+  "max_dockable_ship_volume": 50000000.0,
+  "name": "Amarr VIII (Oris) - Emperor Family Academy",
+  "office_rental_cost": 1601418872.0,
+  "owner": 1000086,
+  "position": {
+    "x": -518583951360.0,
+    "y": 30256619520.0,
+    "z": 1042895708160.0
+  },
+  "race_id": 4,
+  "reprocessing_efficiency": 0.5,
+  "reprocessing_stations_take": 0.05,
+  "services": [
+    "bounty-missions",
+    "courier-missions",
+    "interbus",
+    "reprocessing-plant",
+    "market",
+    "stock-exchange",
+    "cloning",
+    "repair-facilities",
+    "factory",
+    "fitting",
+    "news",
+    "insurance",
+    "docking",
+    "office-rental",
+    "loyalty-point-store",
+    "navy-offices",
+    "security-offices"
+  ],
+  "station_id": 60008494,
+  "system_id": 30002187,
+  "type_id": 1932
+}
