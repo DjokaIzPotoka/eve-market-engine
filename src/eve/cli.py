@@ -8,6 +8,7 @@ import logging
 import typer
 
 from eve.config import Settings
+from eve.features.book_features import compute_book_features
 from eve.ingest.esi_client import EsiClient
 from eve.ingest.history import ingest_history
 from eve.ingest.locations import resolve_locations
@@ -78,9 +79,20 @@ def ingest_history_cmd(
 
 
 @app.command()
-def features() -> None:
-    """Compute book features (best bid/ask, depth, order counts) from stored snapshots."""
-    typer.echo("not implemented yet")
+def features(
+    region: int = typer.Option(..., help="Region ID to compute book features for."),
+    station: list[int] = typer.Option(
+        None,
+        help="Station ID(s) to compute rows for (repeatable). Omit for the whole region "
+        "-- slow on a big/liquid region since coverage fans out to every station.",
+    ),
+) -> None:
+    """Compute book features (best bid/ask, depth, order counts) for a region's latest snapshot."""
+    settings = Settings()
+    location_ids = station or None
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        n = compute_book_features(store, region, settings, location_ids=location_ids)
+    typer.echo(f"wrote {n} book_features rows for region {region}")
 
 
 @app.command()

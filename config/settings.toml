@@ -35,3 +35,7 @@ raw_data_dir = "data/raw"
 duckdb_path = "data/eve.duckdb"
 retention_days = 30
 sde_dir = "data/sde"
+
+[features]
+depth_levels = 5
+near_top_pct = 0.05

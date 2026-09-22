@@ -67,6 +67,11 @@ class Storage(BaseModel):
     sde_dir: str = "data/sde"
 
 
+class Features(BaseModel):
+    depth_levels: Annotated[int, Field(ge=1, le=50)] = 5
+    near_top_pct: Annotated[float, Field(gt=0, le=1)] = 0.05
+
+
 class Settings(BaseSettings):
     """Top-level settings, sourced from `config/settings.toml` (see DEFAULT_CONFIG_PATH).
 
@@ -83,6 +88,7 @@ class Settings(BaseSettings):
     filters: Filters
     esi: Esi
     storage: Storage
+    features: Features
 
     @classmethod
     def settings_customise_sources(

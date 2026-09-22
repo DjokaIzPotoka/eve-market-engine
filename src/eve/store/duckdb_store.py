@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import duckdb
+import polars as pl
 
 
 def _to_naive_utc(dt: datetime) -> datetime:
@@ -121,6 +123,43 @@ CREATE TABLE IF NOT EXISTS sde_meta (
 )
 """
 
+SOLAR_SYSTEMS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS solar_systems (
+    system_id BIGINT PRIMARY KEY,
+    region_id BIGINT,
+    constellation_id BIGINT,
+    security_status DOUBLE,
+    name TEXT
+)
+"""
+
+SYSTEM_JUMPS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS system_jumps (
+    from_system_id BIGINT,
+    to_system_id BIGINT,
+    PRIMARY KEY (from_system_id, to_system_id)
+)
+"""
+
+BOOK_FEATURES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS book_features (
+    snapshot_id TEXT,
+    location_id BIGINT,
+    type_id BIGINT,
+    best_bid DOUBLE,
+    best_ask DOUBLE,
+    bid_depth_volumes BIGINT[],
+    ask_depth_volumes BIGINT[],
+    bid_orders_near_top INTEGER,
+    ask_orders_near_top INTEGER,
+    history_avg_7d DOUBLE,
+    history_avg_30d DOUBLE,
+    price_deviation_30d_pct DOUBLE,
+    computed_at TIMESTAMP,
+    PRIMARY KEY (snapshot_id, location_id, type_id)
+)
+"""
+
 # Structure IDs (player-owned citizen structures) are far above any NPC station ID and
 # require authenticated ESI -- out of scope for v1 (see CLAUDE.md "Kasnije (van v1)").
 MAX_NPC_STATION_ID = 70_000_000
@@ -153,6 +192,9 @@ class DuckDBStore:
         self._con.execute(HISTORY_SCHEMA)
         self._con.execute(HISTORY_FETCH_LOG_SCHEMA)
         self._con.execute(SDE_META_SCHEMA)
+        self._con.execute(SOLAR_SYSTEMS_SCHEMA)
+        self._con.execute(SYSTEM_JUMPS_SCHEMA)
+        self._con.execute(BOOK_FEATURES_SCHEMA)
 
     def close(self) -> None:
         self._con.close()
@@ -225,6 +267,92 @@ class DuckDBStore:
         else:
             self._con.execute("COMMIT")
 
+    def history_averages(
+        self, region_id: int, as_of: date
+    ) -> dict[int, tuple[float | None, float | None]]:
+        """`type_id -> (avg_price_7d, avg_price_30d)` using history strictly before `as_of`."""
+        rows = self._con.execute(
+            """
+            SELECT
+                type_id,
+                AVG(average) FILTER (WHERE date >= ? - INTERVAL 7 DAY) AS avg_7d,
+                AVG(average) FILTER (WHERE date >= ? - INTERVAL 30 DAY) AS avg_30d
+            FROM history
+            WHERE region_id = ? AND date < ?
+            GROUP BY type_id
+            """,
+            [as_of, as_of, region_id, as_of],
+        ).fetchall()
+        return {type_id: (avg_7d, avg_30d) for type_id, avg_7d, avg_30d in rows}
+
+    def sell_orders(self, region_id: int) -> list[tuple[int, int, float, int]]:
+        """`(location_id, type_id, price, volume_remain)` for every sell order in the region."""
+        return self._con.execute(
+            "SELECT location_id, type_id, price, volume_remain FROM orders_latest "
+            "WHERE region_id = ? AND is_buy_order = false",
+            [region_id],
+        ).fetchall()
+
+    def buy_orders_for_projection(
+        self, region_id: int
+    ) -> list[tuple[int, int, int, int, float, int, str]]:
+        """`(order_id, type_id, location_id, system_id, price, volume_remain, range)` for buy
+        orders with `min_volume <= 1` -- the "exit liquidity" filter from CLAUDE.md."""
+        return self._con.execute(
+            'SELECT order_id, type_id, location_id, system_id, price, volume_remain, "range" '
+            "FROM orders_latest WHERE region_id = ? AND is_buy_order = true AND min_volume <= 1",
+            [region_id],
+        ).fetchall()
+
+    # -- Book features --------------------------------------------------------
+
+    def write_book_features(self, snapshot_id: str, rows: list[dict]) -> None:
+        """Replace `book_features` rows for `snapshot_id` (idempotent on re-run).
+
+        Writes via a temp Parquet file + `read_parquet`, not row-by-row `execute`/
+        `executemany` -- duckdb's python binding for LIST-typed params (the bid/ask depth
+        arrays) is roughly 1000x slower per row than scalar params (~7ms/row measured),
+        which is impractical at the row counts a liquid region produces.
+        """
+        self._con.execute("BEGIN TRANSACTION")
+        try:
+            self._con.execute("DELETE FROM book_features WHERE snapshot_id = ?", [snapshot_id])
+            if rows:
+                computed_at = _to_naive_utc(datetime.now(UTC))
+                df = pl.DataFrame(
+                    {
+                        "snapshot_id": [snapshot_id] * len(rows),
+                        "location_id": [r["location_id"] for r in rows],
+                        "type_id": [r["type_id"] for r in rows],
+                        "best_bid": [r["best_bid"] for r in rows],
+                        "best_ask": [r["best_ask"] for r in rows],
+                        "bid_depth_volumes": [r["bid_depth_volumes"] for r in rows],
+                        "ask_depth_volumes": [r["ask_depth_volumes"] for r in rows],
+                        "bid_orders_near_top": [r["bid_orders_near_top"] for r in rows],
+                        "ask_orders_near_top": [r["ask_orders_near_top"] for r in rows],
+                        "history_avg_7d": [r["history_avg_7d"] for r in rows],
+                        "history_avg_30d": [r["history_avg_30d"] for r in rows],
+                        "price_deviation_30d_pct": [r["price_deviation_30d_pct"] for r in rows],
+                        "computed_at": [computed_at] * len(rows),
+                    },
+                    schema_overrides={
+                        "bid_depth_volumes": pl.List(pl.Int64),
+                        "ask_depth_volumes": pl.List(pl.Int64),
+                    },
+                )
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    tmp_path = Path(tmp_dir) / "book_features.parquet"
+                    df.write_parquet(tmp_path)
+                    self._con.execute(
+                        "INSERT INTO book_features SELECT * FROM read_parquet(?)",
+                        [str(tmp_path)],
+                    )
+        except Exception:
+            self._con.execute("ROLLBACK")
+            raise
+        else:
+            self._con.execute("COMMIT")
+
     # -- SDE types --------------------------------------------------------
 
     def latest_sde_build(self) -> int | None:
@@ -272,6 +400,82 @@ class DuckDBStore:
             """
         ).fetchall()
         return [r[0] for r in rows]
+
+    def has_system_topology(self) -> bool:
+        """Whether `solar_systems`/`system_jumps` have been loaded at least once."""
+        row = self._con.execute("SELECT COUNT(*) FROM solar_systems").fetchone()
+        return row[0] > 0
+
+    def load_solar_systems_from_jsonl(self, jsonl_path: str | Path) -> int:
+        """Replace `solar_systems` from a `mapSolarSystems.jsonl` file."""
+        self._con.execute("BEGIN TRANSACTION")
+        try:
+            self._con.execute("DELETE FROM solar_systems")
+            self._con.execute(
+                """
+                INSERT INTO solar_systems
+                SELECT
+                    _key AS system_id,
+                    regionID AS region_id,
+                    constellationID AS constellation_id,
+                    securityStatus AS security_status,
+                    name.en AS name
+                FROM read_json_auto(?, format='newline_delimited')
+                """,
+                [str(jsonl_path)],
+            )
+            count = self._con.execute("SELECT COUNT(*) FROM solar_systems").fetchone()[0]
+        except Exception:
+            self._con.execute("ROLLBACK")
+            raise
+        else:
+            self._con.execute("COMMIT")
+        return count
+
+    def load_system_jumps_from_jsonl(self, jsonl_path: str | Path) -> int:
+        """Replace `system_jumps` from a `mapStargates.jsonl` file (one directed edge per gate)."""
+        self._con.execute("BEGIN TRANSACTION")
+        try:
+            self._con.execute("DELETE FROM system_jumps")
+            self._con.execute(
+                """
+                INSERT INTO system_jumps
+                SELECT DISTINCT
+                    solarSystemID AS from_system_id,
+                    destination.solarSystemID AS to_system_id
+                FROM read_json_auto(?, format='newline_delimited')
+                """,
+                [str(jsonl_path)],
+            )
+            count = self._con.execute("SELECT COUNT(*) FROM system_jumps").fetchone()[0]
+        except Exception:
+            self._con.execute("ROLLBACK")
+            raise
+        else:
+            self._con.execute("COMMIT")
+        return count
+
+    def jump_graph(self) -> dict[int, set[int]]:
+        """The whole system-adjacency graph, for in-memory BFS."""
+        graph: dict[int, set[int]] = {}
+        for from_id, to_id in self._con.execute(
+            "SELECT from_system_id, to_system_id FROM system_jumps"
+        ).fetchall():
+            graph.setdefault(from_id, set()).add(to_id)
+            graph.setdefault(to_id, set()).add(from_id)
+        return graph
+
+    def system_region_map(self) -> dict[int, int]:
+        """`system_id -> region_id` for every known solar system."""
+        rows = self._con.execute("SELECT system_id, region_id FROM solar_systems").fetchall()
+        return dict(rows)
+
+    def station_locations(self) -> list[tuple[int, int]]:
+        """`(location_id, system_id)` for every known NPC station."""
+        return self._con.execute(
+            "SELECT location_id, system_id FROM locations WHERE kind = 'station' "
+            "AND system_id IS NOT NULL"
+        ).fetchall()
 
     # -- Locations (stations + regions) ------------------------------------
 

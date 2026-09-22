@@ -46,15 +46,22 @@ async def download_sde_zip(dest_path: Path) -> Path:
     return dest_path
 
 
-def extract_types_jsonl(zip_path: Path, dest_dir: Path) -> Path:
-    """Extract just `types.jsonl` from the SDE zip (ignores every other member)."""
+def extract_member(zip_path: Path, member_name: str, dest_dir: Path) -> Path:
+    """Extract one exactly-named member from the SDE zip (e.g. `types.jsonl`).
+
+    Matches the exact filename, not a suffix -- `endswith("types.jsonl")` would also match
+    `archetypes.jsonl`, a different, unrelated file that happens to end the same way.
+    """
     with zipfile.ZipFile(zip_path) as zf:
         member = next(
-            name for name in zf.namelist() if name == "types.jsonl" or name.endswith("/types.jsonl")
+            name
+            for name in zf.namelist()
+            if name == member_name or name.endswith("/" + member_name)
         )
-        with zf.open(member) as src, open(dest_dir / "types.jsonl", "wb") as dst:
+        dest_path = dest_dir / member_name
+        with zf.open(member) as src, open(dest_path, "wb") as dst:
             dst.write(src.read())
-    return dest_dir / "types.jsonl"
+    return dest_path
 
 
 async def check_and_load_sde(
@@ -63,15 +70,17 @@ async def check_and_load_sde(
     build_number: int | None = None,
     zip_path: Path | None = None,
 ) -> SdeLoadResult:
-    """Load `types` from the SDE, unless the current build is already loaded.
+    """Load `types` and the solar-system/stargate topology from the SDE.
 
+    Skipped only when the build is already loaded *and* the topology tables are already
+    populated (a store upgraded from before topology loading existed still needs one pass).
     `build_number` and `zip_path` are injectable seams for tests (and for loading a
     pre-downloaded zip) -- by default the build is fetched from ESI and the zip downloaded.
     """
     if build_number is None:
         build_number = await fetch_latest_build()
     current_build = store.latest_sde_build()
-    if current_build == build_number:
+    if current_build == build_number and store.has_system_topology():
         logger.info("SDE already up to date (build %d)", build_number)
         return SdeLoadResult(
             build_number=build_number,
@@ -86,17 +95,29 @@ async def check_and_load_sde(
     if zip_path is None:
         zip_path = sde_dir / "eve-online-static-data-latest-jsonl.zip"
         await download_sde_zip(zip_path)
-    types_path = extract_types_jsonl(zip_path, sde_dir)
+
+    types_path = extract_member(zip_path, "types.jsonl", sde_dir)
+    systems_path = extract_member(zip_path, "mapSolarSystems.jsonl", sde_dir)
+    stargates_path = extract_member(zip_path, "mapStargates.jsonl", sde_dir)
     if owns_zip:
         zip_path.unlink()
 
     types_loaded = store.load_types_from_jsonl(types_path, build_number)
+    systems_loaded = store.load_solar_systems_from_jsonl(systems_path)
+    jumps_loaded = store.load_system_jumps_from_jsonl(stargates_path)
+    logger.info(
+        "loaded %d types, %d solar systems, %d jump edges (SDE build %d)",
+        types_loaded,
+        systems_loaded,
+        jumps_loaded,
+        build_number,
+    )
+
     unknown = store.unknown_type_ids()
     if unknown:
         logger.warning(
             "%d type_id(s) in orders_latest have no SDE match: %s", len(unknown), unknown
         )
-    logger.info("loaded %d types from SDE build %d", types_loaded, build_number)
 
     return SdeLoadResult(
         build_number=build_number,
