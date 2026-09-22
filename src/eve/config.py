@@ -50,6 +50,22 @@ class Filters(BaseModel):
     max_price: NonNegative = 0.0
 
 
+class Esi(BaseModel):
+    base_url: str = "https://esi.evetech.net/latest"
+    contact: str
+    app_name: str = "eve-market-engine"
+    max_concurrency: Annotated[int, Field(ge=1, le=50)] = 5
+    max_retries: Annotated[int, Field(ge=0, le=10)] = 5
+    backoff_base_seconds: Positive = 1.0
+    error_limit_threshold: Annotated[int, Field(ge=1)] = 10
+
+
+class Storage(BaseModel):
+    raw_data_dir: str = "data/raw"
+    duckdb_path: str = "data/eve.duckdb"
+    retention_days: Annotated[int, Field(ge=1)] = 30
+
+
 class Settings(BaseSettings):
     """Top-level settings, sourced from `config/settings.toml` (see DEFAULT_CONFIG_PATH).
 
@@ -64,6 +80,8 @@ class Settings(BaseSettings):
     cargo: Cargo
     station_pairs: list[StationPair]
     filters: Filters
+    esi: Esi
+    storage: Storage
 
     @classmethod
     def settings_customise_sources(

@@ -34,6 +34,11 @@ def test_invalid_budget_raises_clear_error(tmp_path: Path) -> None:
         to_station_id = 60008494
 
         [filters]
+
+        [esi]
+        contact = "test@example.com"
+
+        [storage]
         """
     )
 

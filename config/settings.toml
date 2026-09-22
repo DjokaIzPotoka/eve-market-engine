@@ -20,3 +20,17 @@ to_station_id = 60008494   # Amarr VIII
 [filters]
 min_price = 0.0
 max_price = 0.0 # 0 = bez limita
+
+[esi]
+base_url = "https://esi.evetech.net/latest"
+contact = "vpaunovic04@gmail.com"
+app_name = "eve-market-engine"
+max_concurrency = 5
+max_retries = 5
+backoff_base_seconds = 1.0
+error_limit_threshold = 10
+
+[storage]
+raw_data_dir = "data/raw"
+duckdb_path = "data/eve.duckdb"
+retention_days = 30

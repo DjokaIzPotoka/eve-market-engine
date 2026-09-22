@@ -2,15 +2,38 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 import typer
 
+from eve.config import Settings
+from eve.ingest.orders import ingest_region
+
 app = typer.Typer(help="EVE Market Engine - market making advisor & hauling optimizer.")
+
+
+@app.callback()
+def _configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
 
 
 @app.command()
 def ingest(region: int = typer.Option(..., help="Region ID to ingest orders for.")) -> None:
     """Fetch and store a market orders snapshot for a region."""
-    typer.echo("not implemented yet")
+    result = asyncio.run(ingest_region(region, Settings()))
+    if result.skipped:
+        typer.echo(
+            f"snapshot {result.snapshot_id} still fresh (expires {result.expires_at}) - "
+            f"{result.order_count} orders, fetch skipped"
+        )
+    else:
+        typer.echo(
+            f"ingested snapshot {result.snapshot_id}: {result.order_count} orders "
+            f"(expires {result.expires_at})"
+        )
 
 
 @app.command()
