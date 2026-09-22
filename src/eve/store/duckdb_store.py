@@ -160,6 +160,45 @@ CREATE TABLE IF NOT EXISTS book_features (
 )
 """
 
+SNAPSHOT_DIFF_EVENTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS snapshot_diff_events (
+    region_id BIGINT,
+    location_id BIGINT,
+    type_id BIGINT,
+    order_id BIGINT,
+    is_buy_order BOOLEAN,
+    event_type TEXT,
+    price DOUBLE,
+    filled_volume BIGINT,
+    from_snapshot_id TEXT,
+    to_snapshot_id TEXT,
+    from_fetched_at TIMESTAMP,
+    to_fetched_at TIMESTAMP,
+    PRIMARY KEY (from_snapshot_id, to_snapshot_id, order_id, event_type)
+)
+"""
+
+BOOK_DIFF_METRICS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS book_diff_metrics (
+    region_id BIGINT,
+    location_id BIGINT,
+    type_id BIGINT,
+    from_snapshot_id TEXT,
+    to_snapshot_id TEXT,
+    from_fetched_at TIMESTAMP,
+    to_fetched_at TIMESTAMP,
+    elapsed_hours DOUBLE,
+    bid_volume_per_hour DOUBLE,
+    ask_volume_per_hour DOUBLE,
+    relists_per_hour DOUBLE,
+    bid_competitor_count INTEGER,
+    ask_competitor_count INTEGER,
+    estimated_bid_capture_rate DOUBLE,
+    estimated_ask_capture_rate DOUBLE,
+    PRIMARY KEY (location_id, type_id, from_snapshot_id, to_snapshot_id)
+)
+"""
+
 # Structure IDs (player-owned citizen structures) are far above any NPC station ID and
 # require authenticated ESI -- out of scope for v1 (see CLAUDE.md "Kasnije (van v1)").
 MAX_NPC_STATION_ID = 70_000_000
@@ -195,6 +234,8 @@ class DuckDBStore:
         self._con.execute(SOLAR_SYSTEMS_SCHEMA)
         self._con.execute(SYSTEM_JUMPS_SCHEMA)
         self._con.execute(BOOK_FEATURES_SCHEMA)
+        self._con.execute(SNAPSHOT_DIFF_EVENTS_SCHEMA)
+        self._con.execute(BOOK_DIFF_METRICS_SCHEMA)
 
     def close(self) -> None:
         self._con.close()
@@ -226,6 +267,28 @@ class DuckDBStore:
             expires_at=_to_aware_utc(expires_at),
             order_count=order_count,
         )
+
+    def snapshot_history(self, region_id: int) -> list[SnapshotMeta]:
+        """Every snapshot ever ingested for `region_id`, oldest first (append-only table)."""
+        rows = self._con.execute(
+            """
+            SELECT snapshot_id, region_id, fetched_at, expires_at, order_count
+            FROM snapshots
+            WHERE region_id = ?
+            ORDER BY fetched_at ASC
+            """,
+            [region_id],
+        ).fetchall()
+        return [
+            SnapshotMeta(
+                snapshot_id=snapshot_id,
+                region_id=region_id,
+                fetched_at=_to_aware_utc(fetched_at),
+                expires_at=_to_aware_utc(expires_at),
+                order_count=order_count,
+            )
+            for snapshot_id, region_id, fetched_at, expires_at, order_count in rows
+        ]
 
     def write_snapshot(
         self,
@@ -284,6 +347,14 @@ class DuckDBStore:
             [as_of, as_of, region_id, as_of],
         ).fetchall()
         return {type_id: (avg_7d, avg_30d) for type_id, avg_7d, avg_30d in rows}
+
+    def history_volume_map(self, region_id: int, target_date: date) -> dict[int, float]:
+        """`type_id -> volume` traded region-wide on `target_date`, per ESI history."""
+        rows = self._con.execute(
+            "SELECT type_id, volume FROM history WHERE region_id = ? AND date = ?",
+            [region_id, target_date],
+        ).fetchall()
+        return dict(rows)
 
     def sell_orders(self, region_id: int) -> list[tuple[int, int, float, int]]:
         """`(location_id, type_id, price, volume_remain)` for every sell order in the region."""
@@ -567,3 +638,118 @@ class DuckDBStore:
             raise
         else:
             self._con.execute("COMMIT")
+
+    # -- Snapshot diff / fill model --------------------------------------------
+
+    def write_diff_results(self, events: list[dict], metrics: list[dict]) -> None:
+        """Replace diff events/metrics for whichever `(from_snapshot_id, to_snapshot_id)`
+        pairs appear in `metrics` (idempotent -- safe to recompute the same pair).
+
+        Writes via temp Parquet + `read_parquet`, not `executemany` -- duckdb's python
+        binding turns out to be slow per row in this environment even for all-scalar
+        columns (~12ms/row measured, not just the LIST-column case found in Faza 3),
+        which is impractical at the event counts a real region's diff produces.
+        """
+        pairs = {(m["from_snapshot_id"], m["to_snapshot_id"]) for m in metrics}
+        self._con.execute("BEGIN TRANSACTION")
+        try:
+            for from_id, to_id in pairs:
+                self._con.execute(
+                    "DELETE FROM snapshot_diff_events "
+                    "WHERE from_snapshot_id = ? AND to_snapshot_id = ?",
+                    [from_id, to_id],
+                )
+                self._con.execute(
+                    "DELETE FROM book_diff_metrics "
+                    "WHERE from_snapshot_id = ? AND to_snapshot_id = ?",
+                    [from_id, to_id],
+                )
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                if events:
+                    events_df = pl.DataFrame(
+                        {
+                            "region_id": [e["region_id"] for e in events],
+                            "location_id": [e["location_id"] for e in events],
+                            "type_id": [e["type_id"] for e in events],
+                            "order_id": [e["order_id"] for e in events],
+                            "is_buy_order": [e["is_buy_order"] for e in events],
+                            "event_type": [e["event_type"] for e in events],
+                            "price": [e["price"] for e in events],
+                            "filled_volume": [e["filled_volume"] for e in events],
+                            "from_snapshot_id": [e["from_snapshot_id"] for e in events],
+                            "to_snapshot_id": [e["to_snapshot_id"] for e in events],
+                            "from_fetched_at": [
+                                _to_naive_utc(e["from_fetched_at"]) for e in events
+                            ],
+                            "to_fetched_at": [_to_naive_utc(e["to_fetched_at"]) for e in events],
+                        },
+                        schema_overrides={"filled_volume": pl.Int64},
+                    )
+                    events_path = Path(tmp_dir) / "events.parquet"
+                    events_df.write_parquet(events_path)
+                    self._con.execute(
+                        "INSERT INTO snapshot_diff_events SELECT * FROM read_parquet(?)",
+                        [str(events_path)],
+                    )
+                if metrics:
+                    metrics_df = pl.DataFrame(
+                        {
+                            "region_id": [m["region_id"] for m in metrics],
+                            "location_id": [m["location_id"] for m in metrics],
+                            "type_id": [m["type_id"] for m in metrics],
+                            "from_snapshot_id": [m["from_snapshot_id"] for m in metrics],
+                            "to_snapshot_id": [m["to_snapshot_id"] for m in metrics],
+                            "from_fetched_at": [
+                                _to_naive_utc(m["from_fetched_at"]) for m in metrics
+                            ],
+                            "to_fetched_at": [_to_naive_utc(m["to_fetched_at"]) for m in metrics],
+                            "elapsed_hours": [m["elapsed_hours"] for m in metrics],
+                            "bid_volume_per_hour": [m["bid_volume_per_hour"] for m in metrics],
+                            "ask_volume_per_hour": [m["ask_volume_per_hour"] for m in metrics],
+                            "relists_per_hour": [m["relists_per_hour"] for m in metrics],
+                            "bid_competitor_count": [m["bid_competitor_count"] for m in metrics],
+                            "ask_competitor_count": [m["ask_competitor_count"] for m in metrics],
+                            "estimated_bid_capture_rate": [
+                                m["estimated_bid_capture_rate"] for m in metrics
+                            ],
+                            "estimated_ask_capture_rate": [
+                                m["estimated_ask_capture_rate"] for m in metrics
+                            ],
+                        }
+                    )
+                    metrics_path = Path(tmp_dir) / "metrics.parquet"
+                    metrics_df.write_parquet(metrics_path)
+                    self._con.execute(
+                        "INSERT INTO book_diff_metrics SELECT * FROM read_parquet(?)",
+                        [str(metrics_path)],
+                    )
+        except Exception:
+            self._con.execute("ROLLBACK")
+            raise
+        else:
+            self._con.execute("COMMIT")
+
+    def calibration_actual_volume(
+        self, region_id: int, type_id: int, target_date: date
+    ) -> float | None:
+        """The real region-wide traded volume for `type_id` on `target_date`, per history."""
+        row = self._con.execute(
+            "SELECT volume FROM history WHERE region_id = ? AND type_id = ? AND date = ?",
+            [region_id, type_id, target_date],
+        ).fetchone()
+        return row[0] if row is not None else None
+
+    def calibration_estimated_volume(
+        self, region_id: int, type_id: int, target_date: date
+    ) -> float:
+        """Sum of `filled_volume` from diff events whose interval falls on `target_date`."""
+        row = self._con.execute(
+            """
+            SELECT COALESCE(SUM(filled_volume), 0)
+            FROM snapshot_diff_events
+            WHERE region_id = ? AND type_id = ? AND event_type = 'fill'
+            AND CAST(to_fetched_at AS DATE) = ?
+            """,
+            [region_id, type_id, target_date],
+        ).fetchone()
+        return row[0]

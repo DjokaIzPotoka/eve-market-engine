@@ -9,6 +9,7 @@ import typer
 
 from eve.config import Settings
 from eve.features.book_features import compute_book_features
+from eve.fill.fill_model import run_diff_for_region
 from eve.ingest.esi_client import EsiClient
 from eve.ingest.history import ingest_history
 from eve.ingest.locations import resolve_locations
@@ -93,6 +94,18 @@ def features(
     with DuckDBStore(settings.storage.duckdb_path) as store:
         n = compute_book_features(store, region, settings, location_ids=location_ids)
     typer.echo(f"wrote {n} book_features rows for region {region}")
+
+
+@app.command()
+def diff(region: int = typer.Option(..., help="Region ID to diff retained snapshots for.")) -> None:
+    """Diff every consecutive pair of retained raw snapshots into fills/relists/cancels."""
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        result = run_diff_for_region(store, region, settings)
+    typer.echo(
+        f"region {result.region_id}: {result.pairs_processed} snapshot pairs diffed, "
+        f"{result.pairs_skipped_missing_file} skipped (missing files) -- {result.event_counts}"
+    )
 
 
 @app.command()

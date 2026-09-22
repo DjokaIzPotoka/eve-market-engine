@@ -39,3 +39,7 @@ sde_dir = "data/sde"
 [features]
 depth_levels = 5
 near_top_pct = 0.05
+
+[fill]
+max_gap_minutes = 60
+fill_plausibility_factor = 1.0
