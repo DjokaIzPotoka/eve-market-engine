@@ -1,0 +1,22 @@
+[skills]
+broker_relations = 0
+accounting = 0
+margin_trading = 0
+
+[standings]
+faction = 0.0
+corporation = 0.0
+
+[budget]
+default_isk = 500_000_000
+
+[cargo]
+default_m3 = 5000
+
+[[station_pairs]]
+from_station_id = 60003760 # Jita IV-4
+to_station_id = 60008494   # Amarr VIII
+
+[filters]
+min_price = 0.0
+max_price = 0.0 # 0 = bez limita
