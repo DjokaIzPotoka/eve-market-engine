@@ -71,3 +71,12 @@ def test_cli_rejects_unknown_exit_mode() -> None:
     )
 
     assert result.exit_code != 0
+
+
+def test_result_table_shows_daily_volume_columns_with_na_without_history(tmp_path: Path) -> None:
+    response = _post(tmp_path, exit_mode="instant")  # seeded orders, no history rows
+
+    assert "Daily vol (units)" in response.text
+    assert "Daily vol (ISK)" in response.text
+    assert "Qty / daily vol" in response.text
+    assert "n/a" in response.text

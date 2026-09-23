@@ -26,6 +26,7 @@ class HaulingMarketData:
     dest_listing_price: dict[int, float]  # type_id -> dest best ask (listing reference)
     dest_daily_volume: dict[int, float]  # type_id -> avg daily traded volume (history window)
     dest_volatility_pct: dict[int, float]  # type_id -> avg daily (high-low)/avg, in %
+    dest_avg_price: dict[int, float]  # type_id -> avg daily price over the history window
     packaged_volume: dict[int, float]  # type_id -> m3/unit
     type_name: dict[int, str]
 
@@ -66,6 +67,7 @@ def load_hauling_market_data(
 
     dest_daily_volume: dict[int, float] = {}
     dest_volatility_pct: dict[int, float] = {}
+    dest_avg_price: dict[int, float] = {}
     if dest_region_id is not None:
         snapshot = store.latest_snapshot_meta(dest_region_id)
         if snapshot is not None:
@@ -74,6 +76,7 @@ def load_hauling_market_data(
             )
             dest_daily_volume = {tid: vol for tid, (vol, _, _) in stats.items()}
             dest_volatility_pct = {tid: vola for tid, (_, vola, _) in stats.items()}
+            dest_avg_price = {tid: price for tid, (_, _, price) in stats.items()}
             # A resting ask can be an outlier on a thin item (one unit at 20x the going
             # rate); never assume a listing sells above the recent average price.
             for tid, (_, _, avg_price) in stats.items():
@@ -108,6 +111,7 @@ def load_hauling_market_data(
         dest_volatility_pct={
             tid: vola for tid, vola in dest_volatility_pct.items() if tid in known_type_ids
         },
+        dest_avg_price={tid: p for tid, p in dest_avg_price.items() if tid in known_type_ids},
         packaged_volume=packaged_volume,
         type_name=type_name,
     )

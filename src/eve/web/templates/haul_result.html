@@ -9,6 +9,9 @@
   <tr>
     <th>Item</th><th>Qty</th><th>Max buy</th><th>Exit</th><th>Target sell</th>
     <th>Profit</th><th>ROI %</th><th>Margin %</th>
+    <th title="Average units traded per day at the destination (ESI history)">Daily vol (units)</th>
+    <th title="Same, valued at the average traded price">Daily vol (ISK)</th>
+    <th title="Our quantity as a share of one day's volume">Qty / daily vol</th>
   </tr>
   {% for line in plan.lines %}
   <tr>
@@ -20,9 +23,12 @@
     <td>{{ line.net_profit|num(0) }}</td>
     <td>{{ line.roi_pct|num(1) }}%</td>
     <td>{{ line.margin_pct|num(1) }}%</td>
+    <td>{{ line.daily_volume|num(0) }}</td>
+    <td>{{ line.daily_volume_isk|num(0) }}</td>
+    <td>{{ (line.share_of_daily_volume_pct|num(1) ~ "%") if line.share_of_daily_volume_pct is not none else "n/a" }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="8">No profitable items found.</td></tr>
+  <tr><td colspan="11">No profitable items found.</td></tr>
   {% endfor %}
 </table>
 <p>

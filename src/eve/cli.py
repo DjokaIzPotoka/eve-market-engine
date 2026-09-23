@@ -199,12 +199,18 @@ def mm(
     typer.echo(f"saved as run {run_id} -- reference it with `eve log-trade --run-id {run_id}`")
 
 
+def _fmt_volume(daily_volume: float | None) -> str:
+    return f"{daily_volume:,.0f}/day" if daily_volume is not None else "n/a"
+
+
 def _echo_hauling_plan(plan: HaulingPlan) -> None:
     typer.echo(f"{plan.from_station_id} -> {plan.to_station_id}: {len(plan.lines)} item(s)")
     for line in plan.lines:
         typer.echo(
             f"  {line.type_name}: {line.quantity:.0f} @ up to {line.max_buy_price:.2f} ISK "
-            f"-> {line.exit_mode} @ {line.target_sell_price:.2f} ISK"
+            f"-> {line.exit_mode} @ {line.target_sell_price:.2f} ISK "
+            f"(daily volume {_fmt_volume(line.daily_volume)}, "
+            f"ROI {line.roi_pct:,.1f}%, margin {line.margin_pct:,.1f}%)"
         )
     typer.echo(
         f"  investment {plan.total_investment:,.0f} ISK, cargo {plan.cargo_m3_used:,.1f} m3, "

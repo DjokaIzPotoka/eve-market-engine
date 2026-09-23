@@ -55,6 +55,11 @@ class ShoppingListLine:
     net_profit: float = 0.0
     roi_pct: float = 0.0  # net profit / investment
     margin_pct: float = 0.0  # net profit / gross sale revenue
+    # Destination market activity (ESI history, averaged over `history_window_days`):
+    # units traded per day, the same in ISK, and how much of it this line would be.
+    daily_volume: float | None = None
+    daily_volume_isk: float | None = None
+    share_of_daily_volume_pct: float | None = None
 
 
 @dataclass(frozen=True)
@@ -304,6 +309,7 @@ def solve_hauling(
             exit_mode = "listing"
         else:
             exit_mode = "instant"
+        daily_volume = data.dest_daily_volume.get(type_id)
         lines.append(
             ShoppingListLine(
                 type_id=type_id,
@@ -315,6 +321,15 @@ def solve_hauling(
                 net_profit=item.net,
                 roi_pct=_pct(item.net, item.investment),
                 margin_pct=_pct(item.net, revenue),
+                daily_volume=daily_volume,
+                daily_volume_isk=(
+                    daily_volume * data.dest_avg_price.get(type_id, 0.0)
+                    if daily_volume is not None
+                    else None
+                ),
+                share_of_daily_volume_pct=(
+                    _pct(item.purchase_qty, daily_volume) if daily_volume else None
+                ),
             )
         )
 

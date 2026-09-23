@@ -319,3 +319,26 @@ def test_listing_price_is_capped_by_recent_average_price(tmp_path: Path) -> None
         plan = _solve(store, "listing", 1)
 
     assert plan.lines[0].target_sell_price < 4.0  # <= avg price 4.0 minus the haircuts
+
+
+def test_lines_report_destination_daily_volume_in_units_isk_and_share(tmp_path: Path) -> None:
+    with _mode_store(tmp_path) as store:
+        _seed_market(store, 80, daily_volume=2000, source_qty=50)  # avg price 10.0
+        plan = _solve(store, "instant")  # 50 units of a 100-unit buy order
+
+    line = plan.lines[0]
+    assert line.daily_volume == pytest.approx(2000.0)
+    assert line.daily_volume_isk == pytest.approx(2000.0 * 10.0)
+    assert line.share_of_daily_volume_pct == pytest.approx(line.quantity / 2000.0 * 100)
+
+
+def test_daily_volume_is_none_when_destination_has_no_history(tmp_path: Path) -> None:
+    with _mode_store(tmp_path) as store:
+        _seed_market(store, 80, daily_volume=2000, source_qty=50)
+        store._con.execute("DELETE FROM history")  # instant exit doesn't need history
+        plan = _solve(store, "instant")
+
+    line = plan.lines[0]
+    assert line.daily_volume is None
+    assert line.daily_volume_isk is None
+    assert line.share_of_daily_volume_pct is None
