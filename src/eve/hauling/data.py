@@ -76,7 +76,10 @@ def load_hauling_market_data(
     all_type_ids = set(source_sell_levels) | set(dest_instant_levels) | set(dest_listing_price)
     type_ref = store.types_by_id(list(all_type_ids))
 
-    known_type_ids = all_type_ids & set(type_ref)
+    # A type can exist in the SDE yet have a NULL packaged_volume (no `packagedVolume` or
+    # `volume`); the cargo constraint can't be enforced for it, so it's dropped like an
+    # unknown type.
+    known_type_ids = {tid for tid in all_type_ids if type_ref.get(tid, (None, None))[1] is not None}
     packaged_volume = {tid: type_ref[tid][1] for tid in known_type_ids}
     type_name = {tid: type_ref[tid][0] for tid in known_type_ids}
 

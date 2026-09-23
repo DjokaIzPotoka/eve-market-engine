@@ -427,6 +427,44 @@ def test_no_source_liquidity_yields_empty_plan(tmp_path: Path) -> None:
     assert plan.lines == []
 
 
+def test_type_with_null_packaged_volume_is_dropped_not_a_crash(tmp_path: Path) -> None:
+    """SDE types can have a NULL packaged_volume; cargo can't be enforced, so drop them."""
+    settings = _settings()
+    with DuckDBStore(tmp_path / "eve.duckdb") as store:
+        _seed_system_station(store, SYS_A, STATION_A)
+        _seed_system_station(store, SYS_B, STATION_B)
+        _link(store, SYS_A, SYS_B)
+        _seed_type(store, 60, packaged_volume=1.0)
+        store._con.execute("INSERT INTO types VALUES (61, 'no-volume', NULL, 0, TRUE)")
+        for type_id, sell_id, buy_id in ((60, 1, 2), (61, 3, 4)):
+            _order(
+                store,
+                sell_id,
+                location_id=STATION_A,
+                system_id=SYS_A,
+                is_buy=False,
+                price=10.0,
+                volume=50,
+                type_id=type_id,
+            )
+            _order(
+                store,
+                buy_id,
+                location_id=STATION_B,
+                system_id=SYS_B,
+                is_buy=True,
+                price=20.0,
+                volume=50,
+                type_id=type_id,
+            )
+
+        plan = solve_hauling(
+            store, STATION_A, STATION_B, budget=10_000.0, cargo_m3=1000.0, settings=settings
+        )
+
+    assert [line.type_id for line in plan.lines] == [60]
+
+
 def test_no_destination_liquidity_yields_empty_plan(tmp_path: Path) -> None:
     settings = _settings()
     with DuckDBStore(tmp_path / "eve.duckdb") as store:
