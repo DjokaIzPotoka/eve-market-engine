@@ -1,0 +1,10 @@
+# Example crontab entries for EVE Market Engine (Faza 8).
+#
+# Install with: crontab -e   (paste the two lines below, with an absolute repo path)
+# Check it's running: tail -f data/logs/ingest.log, and `uv run eve health`.
+#
+# Orders every 10 minutes (PLAN.md asks for 5-15 min):
+*/10 * * * * /absolute/path/to/eve-market-engine/scripts/cron_ingest.sh
+
+# Daily history once a day, off-peak (03:00 UTC):
+0 3 * * * /absolute/path/to/eve-market-engine/scripts/cron_ingest.sh --history

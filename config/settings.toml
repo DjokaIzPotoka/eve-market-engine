@@ -87,3 +87,7 @@ price_tick_isk = 0.01
 target_turnover_days = 1.0
 max_capital_share_per_item = 0.1
 min_near_top_orders = 2
+
+[health]
+stale_after_minutes = 20.0
+error_lookback_hours = 24.0

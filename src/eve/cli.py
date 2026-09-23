@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime, timedelta
 
 import typer
 
@@ -12,11 +13,18 @@ from eve.features.book_features import compute_book_features
 from eve.fill.fill_model import run_diff_for_region
 from eve.hauling.optimizer import HaulingPlan, rank_station_pairs, solve_hauling
 from eve.ingest.esi_client import EsiClient
-from eve.ingest.history import ingest_history
 from eve.ingest.locations import resolve_locations
-from eve.ingest.orders import ingest_region
 from eve.ingest.sde import check_and_load_sde
 from eve.market_making.optimizer import MarketMakingPlan, solve_market_making
+from eve.ops.health import HealthReport, check_health
+from eve.ops.ingest_runner import (
+    run_and_record_history,
+    run_and_record_ingest,
+    run_ingest_all,
+    run_ingest_history_all,
+)
+from eve.ops.plans import save_hauling_plan, save_market_making_plan
+from eve.ops.trades import log_trade, report_by_item, report_by_run
 from eve.store.duckdb_store import DuckDBStore
 
 app = typer.Typer(help="EVE Market Engine - market making advisor & hauling optimizer.")
@@ -32,17 +40,14 @@ def _configure_logging() -> None:
 @app.command()
 def ingest(region: int = typer.Option(..., help="Region ID to ingest orders for.")) -> None:
     """Fetch and store a market orders snapshot for a region."""
-    result = asyncio.run(ingest_region(region, Settings()))
-    if result.skipped:
-        typer.echo(
-            f"snapshot {result.snapshot_id} still fresh (expires {result.expires_at}) - "
-            f"{result.order_count} orders, fetch skipped"
-        )
-    else:
-        typer.echo(
-            f"ingested snapshot {result.snapshot_id}: {result.order_count} orders "
-            f"(expires {result.expires_at})"
-        )
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        outcome = asyncio.run(run_and_record_ingest(store, region, settings))
+    if not outcome.success:
+        typer.echo(f"ingest failed for region {region}: {outcome.error_message}")
+        raise typer.Exit(code=1)
+    status = "cached, fetch skipped" if outcome.skipped else "ingested"
+    typer.echo(f"region {region}: {outcome.order_count} orders, {status} (run {outcome.run_id})")
 
 
 @app.command(name="load-sde")
@@ -74,11 +79,39 @@ def ingest_history_cmd(
     region: int = typer.Option(..., help="Region ID to ingest daily history for."),
 ) -> None:
     """Fetch daily market history for every type currently traded in a region (once per day)."""
-    result = asyncio.run(ingest_history(region, Settings()))
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        outcome = asyncio.run(run_and_record_history(store, region, settings))
     typer.echo(
-        f"history for region {result.region_id}: {result.fetched} fetched, "
-        f"{result.skipped_already_done} already done today, {result.failed} failed"
+        f"history for region {region}: {outcome.order_count} fetched -- "
+        f"{outcome.error_message or 'no errors'} (run {outcome.run_id})"
     )
+
+
+@app.command(name="ingest-all")
+def ingest_all_cmd() -> None:
+    """Ingest orders for every region touched by the configured station pairs."""
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        outcomes = asyncio.run(run_ingest_all(store, settings))
+    for outcome in outcomes:
+        status = "ok" if outcome.success else f"FAILED: {outcome.error_message}"
+        typer.echo(f"region {outcome.region_id}: {outcome.order_count} orders -- {status}")
+    if any(not o.success for o in outcomes):
+        raise typer.Exit(code=1)
+
+
+@app.command(name="ingest-history-all")
+def ingest_history_all_cmd() -> None:
+    """Ingest daily history for every region touched by the configured station pairs."""
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        outcomes = asyncio.run(run_ingest_history_all(store, settings))
+    for outcome in outcomes:
+        status = "ok" if outcome.success else f"FAILED: {outcome.error_message}"
+        typer.echo(f"region {outcome.region_id}: {outcome.order_count} fetched -- {status}")
+    if any(not o.success for o in outcomes):
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -110,6 +143,32 @@ def diff(region: int = typer.Option(..., help="Region ID to diff retained snapsh
     )
 
 
+def _echo_health_report(report: HealthReport) -> None:
+    for region in report.regions:
+        if region.last_snapshot_id is None:
+            typer.echo(f"region {region.region_id}: NO SNAPSHOT")
+            continue
+        flag = "STALE" if region.stale else "ok"
+        typer.echo(
+            f"region {region.region_id}: {flag}, last snapshot {region.age_minutes:.1f} min ago, "
+            f"{region.order_count} orders"
+        )
+    for error in report.recent_errors:
+        typer.echo(f"error: {error.command} region {error.region_id}: {error.error_message}")
+    typer.echo("healthy" if report.healthy else "UNHEALTHY")
+
+
+@app.command()
+def health() -> None:
+    """Report last snapshot age/order count per region, and recent ingest errors."""
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        health_report = check_health(store, settings)
+    _echo_health_report(health_report)
+    if not health_report.healthy:
+        raise typer.Exit(code=1)
+
+
 def _echo_market_making_plan(plan: MarketMakingPlan) -> None:
     typer.echo(f"station {plan.station_id}: {len(plan.lines)} item(s)")
     for line in plan.lines:
@@ -133,7 +192,9 @@ def mm(
     settings = Settings()
     with DuckDBStore(settings.storage.duckdb_path) as store:
         plan = solve_market_making(store, station, capital, settings)
+        run_id = save_market_making_plan(store, plan, settings)
     _echo_market_making_plan(plan)
+    typer.echo(f"saved as run {run_id} -- reference it with `eve log-trade --run-id {run_id}`")
 
 
 def _echo_hauling_plan(plan: HaulingPlan) -> None:
@@ -170,11 +231,75 @@ def haul(
             for rank, plan in enumerate(plans, start=1):
                 typer.echo(f"#{rank}")
                 _echo_hauling_plan(plan)
+                run_id = save_hauling_plan(store, plan)
+                typer.echo(f"saved as run {run_id}")
         else:
             if from_ is None or to is None:
                 raise typer.BadParameter("--from and --to are required unless --all-pairs is set")
             plan = solve_hauling(store, from_, to, budget, cargo, settings)
             _echo_hauling_plan(plan)
+            run_id = save_hauling_plan(store, plan)
+            typer.echo(
+                f"saved as run {run_id} -- reference it with `eve log-trade --run-id {run_id}`"
+            )
+
+
+@app.command(name="log-trade")
+def log_trade_cmd(
+    type_id: int = typer.Option(..., help="Item type ID traded."),
+    quantity: float = typer.Option(..., help="Quantity actually traded."),
+    buy_price: float = typer.Option(..., help="Actual buy price per unit, in ISK."),
+    sell_price: float = typer.Option(..., help="Actual sell price per unit, in ISK."),
+    run_id: str = typer.Option(
+        None, help="Saved plan run this trade is based on (printed by `mm`/`haul`)."
+    ),
+    notes: str = typer.Option(None, help="Free-text notes."),
+) -> None:
+    """Record a real trade, optionally against a saved mm/haul plan run."""
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        trade_id = log_trade(
+            store,
+            type_id=type_id,
+            quantity=quantity,
+            buy_price=buy_price,
+            sell_price=sell_price,
+            run_id=run_id,
+            notes=notes,
+        )
+    typer.echo(f"logged trade {trade_id}")
+
+
+@app.command()
+def report(
+    days: int = typer.Option(
+        None, help="Only include trades logged in the last N days. Omit for all trades."
+    ),
+) -> None:
+    """Expected vs. actual profit from logged trades, per item and per plan run."""
+    settings = Settings()
+    since = datetime.now(UTC) - timedelta(days=days) if days is not None else None
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        by_item = report_by_item(store, since)
+        by_run = report_by_run(store, since)
+
+    typer.echo("by item:")
+    for row in by_item:
+        name = row["type_name"] or str(row["type_id"])
+        expected = f"{row['expected_profit']:,.2f}" if row["expected_profit"] else "n/a"
+        typer.echo(
+            f"  {name}: expected {expected} ISK, actual {row['actual_profit']:,.2f} ISK "
+            f"({row['trade_count']} trade(s))"
+        )
+
+    typer.echo("by run:")
+    for row in by_run:
+        run_label = row["run_id"] or "(no run)"
+        expected = f"{row['expected_profit']:,.2f}" if row["expected_profit"] else "n/a"
+        typer.echo(
+            f"  {run_label}: expected {expected} ISK, actual {row['actual_profit']:,.2f} ISK "
+            f"({row['trade_count']} trade(s))"
+        )
 
 
 def main() -> None:

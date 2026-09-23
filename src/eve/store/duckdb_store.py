@@ -199,6 +199,56 @@ CREATE TABLE IF NOT EXISTS book_diff_metrics (
 )
 """
 
+INGEST_RUNS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ingest_runs (
+    run_id TEXT PRIMARY KEY,
+    command TEXT NOT NULL,
+    region_id BIGINT NOT NULL,
+    started_at TIMESTAMP NOT NULL,
+    finished_at TIMESTAMP NOT NULL,
+    success BOOLEAN NOT NULL,
+    order_count BIGINT,
+    error_message TEXT
+)
+"""
+
+PLAN_RUNS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS plan_runs (
+    run_id TEXT PRIMARY KEY,
+    run_type TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    from_station_id BIGINT NOT NULL,
+    to_station_id BIGINT,
+    total_expected_profit DOUBLE NOT NULL,
+    expected_profit_unit TEXT NOT NULL
+)
+"""
+
+PLAN_LINES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS plan_lines (
+    run_id TEXT NOT NULL,
+    type_id BIGINT NOT NULL,
+    type_name TEXT,
+    suggested_quantity DOUBLE NOT NULL,
+    suggested_buy_price DOUBLE NOT NULL,
+    suggested_sell_price DOUBLE NOT NULL,
+    PRIMARY KEY (run_id, type_id)
+)
+"""
+
+TRADES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS trades (
+    trade_id TEXT PRIMARY KEY,
+    run_id TEXT,
+    type_id BIGINT NOT NULL,
+    logged_at TIMESTAMP NOT NULL,
+    quantity DOUBLE NOT NULL,
+    actual_buy_price DOUBLE NOT NULL,
+    actual_sell_price DOUBLE NOT NULL,
+    notes TEXT
+)
+"""
+
 # Structure IDs (player-owned citizen structures) are far above any NPC station ID and
 # require authenticated ESI -- out of scope for v1 (see CLAUDE.md "Kasnije (van v1)").
 MAX_NPC_STATION_ID = 70_000_000
@@ -236,6 +286,10 @@ class DuckDBStore:
         self._con.execute(BOOK_FEATURES_SCHEMA)
         self._con.execute(SNAPSHOT_DIFF_EVENTS_SCHEMA)
         self._con.execute(BOOK_DIFF_METRICS_SCHEMA)
+        self._con.execute(INGEST_RUNS_SCHEMA)
+        self._con.execute(PLAN_RUNS_SCHEMA)
+        self._con.execute(PLAN_LINES_SCHEMA)
+        self._con.execute(TRADES_SCHEMA)
 
     def close(self) -> None:
         self._con.close()
@@ -812,3 +866,156 @@ class DuckDBStore:
             [region_id, type_id, target_date],
         ).fetchone()
         return row[0]
+
+    # -- Faza 8: ingest run log ------------------------------------------------
+
+    def write_ingest_run(
+        self,
+        run_id: str,
+        command: str,
+        region_id: int,
+        started_at: datetime,
+        finished_at: datetime,
+        success: bool,
+        order_count: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        self._con.execute(
+            "INSERT OR REPLACE INTO ingest_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                run_id,
+                command,
+                region_id,
+                _to_naive_utc(started_at),
+                _to_naive_utc(finished_at),
+                success,
+                order_count,
+                error_message,
+            ],
+        )
+
+    def recent_ingest_runs(self, since: datetime, region_id: int | None = None) -> list[tuple]:
+        """`(run_id, command, region_id, started_at, finished_at, success, order_count,
+        error_message)` for runs finished at or after `since`, newest first."""
+        params: list[object] = [_to_naive_utc(since)]
+        region_filter = ""
+        if region_id is not None:
+            region_filter = "AND region_id = ?"
+            params.append(region_id)
+        return self._con.execute(
+            f"""
+            SELECT run_id, command, region_id, started_at, finished_at, success,
+                   order_count, error_message
+            FROM ingest_runs
+            WHERE finished_at >= ? {region_filter}
+            ORDER BY finished_at DESC
+            """,
+            params,
+        ).fetchall()
+
+    # -- Faza 8: saved plans -----------------------------------------------------
+
+    def write_plan_run(
+        self,
+        run_id: str,
+        run_type: str,
+        created_at: datetime,
+        from_station_id: int,
+        to_station_id: int | None,
+        total_expected_profit: float,
+        expected_profit_unit: str,
+    ) -> None:
+        self._con.execute(
+            "INSERT INTO plan_runs VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                run_id,
+                run_type,
+                _to_naive_utc(created_at),
+                from_station_id,
+                to_station_id,
+                total_expected_profit,
+                expected_profit_unit,
+            ],
+        )
+
+    def write_plan_lines(self, run_id: str, lines: list[dict]) -> None:
+        for line in lines:
+            self._con.execute(
+                "INSERT INTO plan_lines VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    run_id,
+                    line["type_id"],
+                    line["type_name"],
+                    line["suggested_quantity"],
+                    line["suggested_buy_price"],
+                    line["suggested_sell_price"],
+                ],
+            )
+
+    def plan_run(self, run_id: str) -> tuple | None:
+        """`(run_id, run_type, created_at, from_station_id, to_station_id,
+        total_expected_profit, expected_profit_unit)` or None."""
+        return self._con.execute(
+            "SELECT run_id, run_type, created_at, from_station_id, to_station_id, "
+            "total_expected_profit, expected_profit_unit FROM plan_runs WHERE run_id = ?",
+            [run_id],
+        ).fetchone()
+
+    def plan_lines_for_run(self, run_id: str) -> list[tuple]:
+        """`(type_id, type_name, suggested_quantity, suggested_buy_price,
+        suggested_sell_price)` for one saved plan run."""
+        return self._con.execute(
+            "SELECT type_id, type_name, suggested_quantity, suggested_buy_price, "
+            "suggested_sell_price FROM plan_lines WHERE run_id = ?",
+            [run_id],
+        ).fetchall()
+
+    # -- Faza 8: trade log --------------------------------------------------------
+
+    def write_trade(
+        self,
+        trade_id: str,
+        run_id: str | None,
+        type_id: int,
+        logged_at: datetime,
+        quantity: float,
+        actual_buy_price: float,
+        actual_sell_price: float,
+        notes: str | None = None,
+    ) -> None:
+        self._con.execute(
+            "INSERT INTO trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                trade_id,
+                run_id,
+                type_id,
+                _to_naive_utc(logged_at),
+                quantity,
+                actual_buy_price,
+                actual_sell_price,
+                notes,
+            ],
+        )
+
+    def trades_for_report(self, since: datetime | None = None) -> list[tuple]:
+        """`(trade_id, run_id, type_id, logged_at, quantity, actual_buy_price,
+        actual_sell_price, plan_type_name, plan_buy_price, plan_sell_price)` -- left-joined
+        against `plan_lines` so trades logged without a referenced plan (or whose plan line
+        doesn't match on type_id) still come back, with the plan columns NULL."""
+        where = ""
+        params: list[object] = []
+        if since is not None:
+            where = "WHERE t.logged_at >= ?"
+            params = [_to_naive_utc(since)]
+        return self._con.execute(
+            f"""
+            SELECT t.trade_id, t.run_id, t.type_id, t.logged_at, t.quantity,
+                   t.actual_buy_price, t.actual_sell_price,
+                   pl.type_name, pl.suggested_buy_price, pl.suggested_sell_price
+            FROM trades t
+            LEFT JOIN plan_lines pl ON pl.run_id = t.run_id AND pl.type_id = t.type_id
+            {where}
+            ORDER BY t.logged_at
+            """,
+            params,
+        ).fetchall()

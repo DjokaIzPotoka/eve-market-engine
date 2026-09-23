@@ -92,6 +92,15 @@ class MarketMaking(BaseModel):
     min_near_top_orders: Annotated[int, Field(ge=1)] = 2
 
 
+class Health(BaseModel):
+    """Health-check thresholds for `eve health` (Faza 8 -- ops, not domain fee rates,
+    but kept config-driven for the same reason: never hardcode a tunable threshold)."""
+
+    # Ingest cadence is 5-15 min per PLAN.md; a region past this is considered stale.
+    stale_after_minutes: Positive = 20.0
+    error_lookback_hours: Positive = 24.0
+
+
 class Filters(BaseModel):
     min_price: NonNegative = 0.0
     max_price: NonNegative = 0.0
@@ -167,6 +176,7 @@ class Settings(BaseSettings):
     fees: Fees
     hauling: Hauling
     market_making: MarketMaking
+    health: Health
 
     @classmethod
     def settings_customise_sources(

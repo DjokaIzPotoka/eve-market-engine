@@ -9,5 +9,15 @@ def test_help_lists_all_commands() -> None:
     result = runner.invoke(app, ["--help"])
 
     assert result.exit_code == 0
-    for command in ("ingest", "features", "mm", "haul"):
+    for command in (
+        "ingest",
+        "features",
+        "mm",
+        "haul",
+        "ingest-all",
+        "ingest-history-all",
+        "health",
+        "log-trade",
+        "report",
+    ):
         assert command in result.output
