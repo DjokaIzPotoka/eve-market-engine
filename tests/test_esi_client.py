@@ -128,3 +128,31 @@ def test_error_limit_backoff_sleeps_before_next_request(monkeypatch: pytest.Monk
         asyncio.run(async_client.aclose())
 
     assert 12.0 in sleep_calls
+
+
+def test_last_error_limit_survives_backoff_clearing(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_sleep(seconds: float) -> None:
+        pass
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=_load_page(1),
+            headers={
+                "X-Pages": "2",
+                "Expires": "Tue, 22 Sep 2026 22:29:45 GMT",
+                "X-ESI-Error-Limit-Remain": "5",
+                "X-ESI-Error-Limit-Reset": "12",
+            },
+        )
+
+    client, async_client = _client_for(httpx.MockTransport(handler), _settings())
+    assert client.last_error_limit is None
+    try:
+        asyncio.run(client.fetch_region_orders(10000002))
+    finally:
+        asyncio.run(async_client.aclose())
+
+    assert client.last_error_limit == (5, 12.0)

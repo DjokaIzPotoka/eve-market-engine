@@ -9,15 +9,21 @@ CLI's own per-invocation `with DuckDBStore(...) as store:` pattern instead.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 from fastapi import Depends
 
-from eve.config import Settings
+from eve.config import DEFAULT_CONFIG_PATH, Settings
 from eve.store.duckdb_store import DuckDBStore
 
 
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_config_path() -> Path:
+    """The TOML file `PUT /api/settings` writes to (overridden in tests)."""
+    return DEFAULT_CONFIG_PATH
 
 
 def get_store(settings: Settings = Depends(get_settings)) -> Iterator[DuckDBStore]:

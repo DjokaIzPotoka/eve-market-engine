@@ -136,11 +136,51 @@ def build_problem(
     balance_coeffs: dict[int, dict[str, float]] = defaultdict(dict)
 
     for type_id in sorted(tradable_types):
-        cheapest = min(lv.price for lv in data.source_sell_levels[type_id])
+        instant_levels = data.dest_instant_levels.get(type_id, []) if allow_instant else []
+        listing_revenue = 0.0
+        listing_effective = 0.0
+        listing_cap = 0.0
+        if allow_listing and type_id in data.dest_listing_price and capacity(type_id) > 0:
+            listing_effective = listing_effective_price(
+                data.dest_listing_price[type_id],
+                data.dest_volatility_pct.get(type_id, 0.0),
+                settings,
+                hold_days,
+            )
+            listing_revenue = listing_effective * (1 - sales_tax / 100 - broker_pct / 100)
+            listing_cap = capacity(type_id)
+
+        # Exact pruning (never changes the optimum, only shrinks the model): a unit bought at
+        # or above the best net revenue any exit can pay is never worth it, and buying more
+        # than the exits can absorb in total can't be sold (balance constraint).
+        best_unit_revenue = max(
+            [lv.price * (1 - sales_tax / 100) for lv in instant_levels[:1]] + [listing_revenue]
+        )
+        source_levels = [
+            lv for lv in data.source_sell_levels[type_id] if lv.price < best_unit_revenue
+        ]
+        if not source_levels:
+            continue
+        cheapest = source_levels[0].price
+        instant_levels = [
+            lv for lv in instant_levels if lv.price * (1 - sales_tax / 100) > cheapest
+        ]
+        exit_capacity = sum(lv.volume_remain for lv in instant_levels) + (
+            listing_cap if listing_revenue > cheapest else 0.0
+        )
+        kept: list = []
+        cumulative = 0
+        for lv in source_levels:
+            kept.append(lv)
+            cumulative += lv.volume_remain
+            if cumulative >= exit_capacity:
+                break
+        source_levels = kept
+
         integer = cheapest > settings.hauling.integer_price_threshold_isk
         pv = data.packaged_volume[type_id]
 
-        for level in data.source_sell_levels[type_id]:
+        for level in source_levels:
             name = f"x_{level.order_id}"
             variables.append(Variable(name, upper=float(level.volume_remain), integer=integer))
             obj_coeffs[name] = -level.price
@@ -149,7 +189,6 @@ def build_problem(
             cargo_coeffs[name] = pv
             balance_coeffs[type_id][name] = -1.0
 
-        instant_levels = data.dest_instant_levels.get(type_id, []) if allow_instant else []
         for level in instant_levels:
             name = f"y_{level.order_id}"
             revenue = level.price * (1 - sales_tax / 100)
@@ -158,16 +197,11 @@ def build_problem(
             var_map[name] = (type_id, "instant", level.price)
             balance_coeffs[type_id][name] = 1.0
 
-        if allow_listing and type_id in data.dest_listing_price and capacity(type_id) > 0:
-            ref_price = data.dest_listing_price[type_id]
-            effective_price = listing_effective_price(
-                ref_price, data.dest_volatility_pct.get(type_id, 0.0), settings, hold_days
-            )
-            revenue = effective_price * (1 - sales_tax / 100 - broker_pct / 100)
+        if listing_revenue > cheapest:
             name = f"z_{type_id}"
-            variables.append(Variable(name, upper=capacity(type_id), integer=integer))
-            obj_coeffs[name] = revenue
-            var_map[name] = (type_id, "listing", effective_price)
+            variables.append(Variable(name, upper=listing_cap, integer=integer))
+            obj_coeffs[name] = listing_revenue
+            var_map[name] = (type_id, "listing", listing_effective)
             balance_coeffs[type_id][name] = 1.0
 
     constraints = [

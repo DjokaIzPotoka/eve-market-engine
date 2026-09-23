@@ -104,3 +104,53 @@ def report_by_run(store: DuckDBStore, since: datetime | None = None) -> list[dic
         agg["actual_profit"] += c.actual_profit
         agg["trade_count"] += 1
     return sorted(by_run.values(), key=lambda a: (a["run_id"] is None, a["run_id"] or ""))
+
+
+@dataclass(frozen=True)
+class TradeLogRow:
+    trade_id: str
+    run_id: str | None
+    type_id: int
+    type_name: str
+    logged_at: datetime
+    quantity: float
+    actual_buy_price: float
+    actual_sell_price: float
+    expected_profit: float | None  # None when the trade has no matching plan line
+    actual_profit: float
+    notes: str | None
+
+
+def trade_log_rows(store: DuckDBStore, since: datetime | None = None) -> list[TradeLogRow]:
+    """Every logged trade with expected (from the referenced plan) vs actual profit, newest
+    first. Same profit definition as `report_by_item`: (sell - buy) * quantity."""
+    rows = []
+    for (
+        trade_id,
+        run_id,
+        type_id,
+        type_name,
+        logged_at,
+        quantity,
+        buy,
+        sell,
+        plan_buy,
+        plan_sell,
+        notes,
+    ) in store.trade_log(since):
+        rows.append(
+            TradeLogRow(
+                trade_id=trade_id,
+                run_id=run_id,
+                type_id=type_id,
+                type_name=type_name,
+                logged_at=logged_at,
+                quantity=quantity,
+                actual_buy_price=buy,
+                actual_sell_price=sell,
+                expected_profit=(plan_sell - plan_buy) * quantity if plan_buy is not None else None,
+                actual_profit=(sell - buy) * quantity,
+                notes=notes,
+            )
+        )
+    return rows

@@ -18,6 +18,11 @@ from eve.optimize.solver import solve
 from eve.store.duckdb_store import DuckDBStore
 
 _EPS = 1e-6
+_REL_TOL = 1e-7  # CBC returns ~8 significant digits, so bounds need a relative slack
+
+
+def _tol(bound: float) -> float:
+    return max(_EPS, _REL_TOL * abs(bound))
 
 
 @dataclass(frozen=True)
@@ -123,16 +128,17 @@ def solve_market_making(
         slots_used += 2
         total_net_profit_per_day += profit
 
-    assert total_capital_used <= capital + _EPS, "plan exceeds capital"
+    assert total_capital_used <= capital + _tol(capital), "plan exceeds capital"
     assert slots_used <= slots, "plan exceeds order slots"
     for line in lines:
         candidate = next(c for c in candidates if c.type_id == line.type_id)
-        assert line.capital_allocated <= candidate.capital_required + _EPS, (
-            "capital allocated exceeds natural order size"
-        )
+        assert line.capital_allocated <= candidate.capital_required + _tol(
+            candidate.capital_required
+        ), "capital allocated exceeds natural order size"
         assert (
             line.capital_allocated
-            <= settings.market_making.max_capital_share_per_item * capital + _EPS
+            <= settings.market_making.max_capital_share_per_item * capital
+            + _tol(settings.market_making.max_capital_share_per_item * capital)
         ), "capital allocated exceeds max share per item"
 
     return MarketMakingPlan(

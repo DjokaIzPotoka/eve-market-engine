@@ -16,6 +16,7 @@ dependencies = [
     "pulp>=3.3.2",
     "pydantic-settings>=2.15.0",
     "python-multipart>=0.0.32",
+    "tomlkit>=0.15.1",
     "typer>=0.27.2",
     "uvicorn>=0.53.0",
 ]

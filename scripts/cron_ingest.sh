@@ -9,7 +9,7 @@
 # .gitignore.
 #
 # Usage: cron_ingest.sh [--history]
-#   (no args)   -- eve ingest-all, run every 5-15 min
+#   (no args)   -- eve ingest-all then eve derive, run every 5-15 min
 #   --history   -- eve ingest-history-all, run once a day
 set -euo pipefail
 
@@ -36,4 +36,12 @@ fi
 trap 'rmdir "$LOCK_DIR"' EXIT
 
 echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') starting $COMMAND" >> "$LOG_FILE"
-uv run eve "$COMMAND" >> "$LOG_FILE" 2>&1
+STATUS=0
+uv run eve "$COMMAND" >> "$LOG_FILE" 2>&1 || STATUS=$?
+# Order ingests are followed by the derived data (book features + snapshot diffs) so market
+# making never ranks stale books; run it even if one region's ingest failed.
+if [[ "$COMMAND" == "ingest-all" ]]; then
+    echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') starting derive" >> "$LOG_FILE"
+    uv run eve derive >> "$LOG_FILE" 2>&1 || STATUS=$?
+fi
+exit "$STATUS"

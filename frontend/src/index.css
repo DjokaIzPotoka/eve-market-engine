@@ -1,0 +1,131 @@
+@import "tailwindcss";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+@import "@fontsource/barlow-semi-condensed/400.css";
+@import "@fontsource/barlow-semi-condensed/500.css";
+@import "@fontsource/barlow-semi-condensed/600.css";
+
+@theme {
+  --color-hull: #0f151c;
+  --color-deck: #161e28;
+  --color-bulkhead: #2b3a4c;
+  --color-readout: #d3dce6;
+  --color-dim: rgb(211 220 230 / 0.62);
+  --color-telemetry: #2ed3b7;
+  --color-sodium: #f4a63a;
+  --font-sans: "Barlow Semi Condensed", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-*: initial;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background: var(--color-hull);
+  color: var(--color-readout);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+}
+input,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* Visible keyboard focus, never tinted with a meaning color. */
+:focus-visible {
+  outline: 2px solid var(--color-readout);
+  outline-offset: 2px;
+}
+
+/* HUD motif: notched corners on panels (1px, Bulkhead). */
+.panel {
+  position: relative;
+  border: 1px solid var(--color-bulkhead);
+  background: var(--color-deck);
+}
+.panel::before,
+.panel::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--color-readout);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.panel::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.panel::after {
+  right: -1px;
+  bottom: -1px;
+  border-left: 0;
+  border-top: 0;
+}
+
+.field {
+  background: var(--color-hull);
+  border: 1px solid var(--color-bulkhead);
+  height: 26px;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+}
+.field:hover {
+  border-color: var(--color-dim);
+}
+.btn {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--color-readout);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 500;
+}
+.btn:hover {
+  background: rgb(211 220 230 / 0.1);
+}
+.btn-primary {
+  background: var(--color-telemetry);
+  border-color: var(--color-telemetry);
+  color: var(--color-hull);
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: #52e0c8;
+}
+
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.25;
+  }
+}
+.pulse {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-hull);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-bulkhead);
+}

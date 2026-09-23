@@ -96,6 +96,11 @@ class MarketMaking(BaseModel):
     # Both sides of the book must have at least this many orders near the top before a
     # two-sided market-making position is suggested.
     min_near_top_orders: Annotated[int, Field(ge=1)] = 2
+    # Suggested buy/sell must both sit within this % of the 30-day average traded price. A
+    # bid far below (or ask far above) what the item actually trades at is a placeholder
+    # order, not a market: quoting bid+tick against it gives a huge paper spread that never
+    # fills.
+    max_price_deviation_pct: Positive = 25.0
 
 
 class Health(BaseModel):
@@ -105,6 +110,13 @@ class Health(BaseModel):
     # Ingest cadence is 5-15 min per PLAN.md; a region past this is considered stale.
     stale_after_minutes: Positive = 20.0
     error_lookback_hours: Positive = 24.0
+
+
+class Ui(BaseModel):
+    """Thresholds for the dashboard's "actionable row" marker (not domain economics)."""
+
+    haul_actionable_roi_pct: NonNegative = 8.0
+    mm_actionable_ppd_per_isk_pct: NonNegative = 1.0
 
 
 class Filters(BaseModel):
@@ -132,11 +144,16 @@ class Storage(BaseModel):
 class Features(BaseModel):
     depth_levels: Annotated[int, Field(ge=1, le=50)] = 5
     near_top_pct: Annotated[float, Field(gt=0, le=1)] = 0.05
+    # `eve derive` keeps this many days of `book_features` rows (one set per snapshot).
+    retention_days: Annotated[int, Field(ge=1)] = 1
 
 
 class Fill(BaseModel):
     max_gap_minutes: Annotated[int, Field(ge=1)] = 60
     fill_plausibility_factor: Annotated[float, Field(gt=0)] = 1.0
+    # Market making reads fill/relist rates averaged over the snapshot pairs of this trailing
+    # window (a single 10-minute pair is mostly noise on thin items).
+    metrics_window_hours: Positive = 24.0
 
 
 class Fees(BaseModel):
@@ -183,6 +200,7 @@ class Settings(BaseSettings):
     hauling: Hauling
     market_making: MarketMaking
     health: Health
+    ui: Ui = Ui()
 
     @classmethod
     def settings_customise_sources(

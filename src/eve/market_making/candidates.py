@@ -34,6 +34,15 @@ class Candidate:
     profit_per_day_per_isk: float
 
 
+def load_diff_metrics(store: DuckDBStore, station_id: int, settings: Settings) -> list[tuple]:
+    """Fill/relist rates for `station_id`, averaged over `fill.metrics_window_hours`."""
+    return store.latest_book_diff_metrics(
+        station_id,
+        window_hours=settings.fill.metrics_window_hours,
+        max_gap_hours=settings.fill.max_gap_minutes / 60,
+    )
+
+
 def load_candidates(
     store: DuckDBStore, station_id: int, capital: float, settings: Settings
 ) -> list[Candidate]:
@@ -45,7 +54,7 @@ def load_candidates(
         return []
 
     features = {row[0]: row for row in store.latest_book_features(region_id, station_id)}
-    diffs = {row[0]: row for row in store.latest_book_diff_metrics(station_id)}
+    diffs = {row[0]: row for row in load_diff_metrics(store, station_id, settings)}
 
     mm = settings.market_making
     sales_tax = sales_tax_pct(settings.skills, settings.fees)
@@ -54,6 +63,18 @@ def load_candidates(
         settings.skills, settings.standings, settings.fees, is_structure=is_structure
     )
     escrow_pct = buy_order_escrow_pct(settings.skills, mm)
+
+    # `book_features.history_avg_30d` is frozen at snapshot time, so it stays NULL when the
+    # history was ingested after the orders; fall back to the current `history` table.
+    history_price: dict[int, float] = {}
+    snapshot = store.latest_snapshot_meta(region_id)
+    if snapshot is not None:
+        history_price = {
+            tid: price
+            for tid, (_vol, _vola, price) in store.history_stats(
+                region_id, snapshot.fetched_at.date(), 30
+            ).items()
+        }
 
     type_ids = sorted(set(features) & set(diffs))
     type_names = store.types_by_id(type_ids)
@@ -82,6 +103,8 @@ def load_candidates(
         ) = diffs[type_id]
 
         if avg_30d is None:
+            avg_30d = history_price.get(type_id)
+        if avg_30d is None:
             continue
         if best_bid is None or best_ask is None:
             continue
@@ -91,6 +114,9 @@ def load_candidates(
         buy_price = best_bid + mm.price_tick_isk
         sell_price = best_ask - mm.price_tick_isk
         if buy_price >= sell_price:
+            continue
+        max_dev = mm.max_price_deviation_pct / 100
+        if buy_price < avg_30d * (1 - max_dev) or sell_price > avg_30d * (1 + max_dev):
             continue
 
         buy_fill_per_day = bid_volume_per_hour * 24 * bid_capture_rate

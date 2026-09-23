@@ -17,6 +17,7 @@ from eve.ingest.esi_client import EsiClient
 from eve.ingest.locations import resolve_locations
 from eve.ingest.sde import check_and_load_sde
 from eve.market_making.optimizer import MarketMakingPlan, solve_market_making
+from eve.ops.derive import run_derive_all
 from eve.ops.health import HealthReport, check_health
 from eve.ops.ingest_runner import (
     run_and_record_history,
@@ -131,6 +132,23 @@ def features(
     with DuckDBStore(settings.storage.duckdb_path) as store:
         n = compute_book_features(store, region, settings, location_ids=location_ids)
     typer.echo(f"wrote {n} book_features rows for region {region}")
+
+
+@app.command()
+def derive() -> None:
+    """Refresh book features and snapshot diffs for the configured station pairs (for cron)."""
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        outcomes = run_derive_all(store, settings)
+    for o in outcomes:
+        status = (
+            f"{o.feature_rows} feature rows, {o.pairs_diffed} snapshot pairs diffed"
+            if o.success
+            else f"FAILED: {o.error_message}"
+        )
+        typer.echo(f"region {o.region_id}: {status}")
+    if any(not o.success for o in outcomes):
+        raise typer.Exit(code=1)
 
 
 @app.command()

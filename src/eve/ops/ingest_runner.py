@@ -15,6 +15,7 @@ from eve.config import Settings
 from eve.ingest.esi_client import EsiClient
 from eve.ingest.history import ingest_history
 from eve.ingest.orders import ingest_region
+from eve.ops.telemetry import record_telemetry
 from eve.store.duckdb_store import DuckDBStore
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,21 @@ def resolve_regions(store: DuckDBStore, settings: Settings) -> set[int]:
 async def run_and_record_ingest(
     store: DuckDBStore, region_id: int, settings: Settings, client: EsiClient | None = None
 ) -> IngestRunOutcome:
+    # Own the client here (rather than inside ingest) so its last ESI error-limit reading is
+    # still available to telemetry after the run, success or failure.
+    owns_client = client is None
+    client = client or EsiClient(settings.esi)
+    try:
+        return await _run_and_record_ingest(store, region_id, settings, client)
+    finally:
+        record_telemetry(store, settings, client)
+        if owns_client:
+            await client.aclose()
+
+
+async def _run_and_record_ingest(
+    store: DuckDBStore, region_id: int, settings: Settings, client: EsiClient | None
+) -> IngestRunOutcome:
     run_id = str(uuid.uuid4())
     started_at = datetime.now(UTC)
     try:
@@ -85,6 +101,21 @@ async def run_and_record_ingest(
 
 async def run_and_record_history(
     store: DuckDBStore, region_id: int, settings: Settings, client: EsiClient | None = None
+) -> IngestRunOutcome:
+    # Own the client here (rather than inside ingest) so its last ESI error-limit reading is
+    # still available to telemetry after the run, success or failure.
+    owns_client = client is None
+    client = client or EsiClient(settings.esi)
+    try:
+        return await _run_and_record_history(store, region_id, settings, client)
+    finally:
+        record_telemetry(store, settings, client)
+        if owns_client:
+            await client.aclose()
+
+
+async def _run_and_record_history(
+    store: DuckDBStore, region_id: int, settings: Settings, client: EsiClient | None
 ) -> IngestRunOutcome:
     run_id = str(uuid.uuid4())
     started_at = datetime.now(UTC)

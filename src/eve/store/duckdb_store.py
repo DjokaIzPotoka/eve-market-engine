@@ -249,6 +249,22 @@ CREATE TABLE IF NOT EXISTS trades (
 )
 """
 
+ESI_LIMIT_SAMPLES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS esi_limit_samples (
+    sampled_at TIMESTAMP PRIMARY KEY,
+    remain INTEGER NOT NULL,
+    reset_s DOUBLE NOT NULL
+)
+"""
+
+DISK_SAMPLES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS disk_samples (
+    sampled_at TIMESTAMP PRIMARY KEY,
+    used_bytes BIGINT NOT NULL,
+    total_bytes BIGINT NOT NULL
+)
+"""
+
 # Structure IDs (player-owned citizen structures) are far above any NPC station ID and
 # require authenticated ESI -- out of scope for v1 (see CLAUDE.md "Kasnije (van v1)").
 MAX_NPC_STATION_ID = 70_000_000
@@ -290,6 +306,8 @@ class DuckDBStore:
         self._con.execute(PLAN_RUNS_SCHEMA)
         self._con.execute(PLAN_LINES_SCHEMA)
         self._con.execute(TRADES_SCHEMA)
+        self._con.execute(ESI_LIMIT_SAMPLES_SCHEMA)
+        self._con.execute(DISK_SAMPLES_SCHEMA)
 
     def close(self) -> None:
         self._con.close()
@@ -459,13 +477,12 @@ class DuckDBStore:
 
     def types_by_id(self, type_ids: list[int] | None = None) -> dict[int, tuple[str, float]]:
         """`type_id -> (name, packaged_volume)`, optionally scoped to `type_ids`."""
-        if type_ids is None:
-            rows = self._con.execute("SELECT type_id, name, packaged_volume FROM types").fetchall()
-        else:
-            rows = self._con.execute(
-                "SELECT type_id, name, packaged_volume FROM types WHERE type_id = ANY(?)",
-                [type_ids],
-            ).fetchall()
+        # Always read the whole table and filter in Python: binding a large Python list as a
+        # parameter costs a slow per-element conversion in duckdb (~40 s for 17k ids on Windows).
+        rows = self._con.execute("SELECT type_id, name, packaged_volume FROM types").fetchall()
+        if type_ids is not None:
+            wanted = set(type_ids)
+            rows = [row for row in rows if row[0] in wanted]
         return {type_id: (name, packaged_volume) for type_id, name, packaged_volume in rows}
 
     def buy_orders_for_projection(
@@ -576,23 +593,99 @@ class DuckDBStore:
             [query, limit],
         ).fetchall()
 
-    def latest_book_diff_metrics(self, location_id: int) -> list[tuple]:
-        """One row per `type_id`: the most recent diff-interval metrics for this location.
+    def latest_book_diff_metrics(
+        self,
+        location_id: int,
+        window_hours: float | None = None,
+        max_gap_hours: float | None = None,
+    ) -> list[tuple]:
+        """One row per `type_id`:
+        `(type_id, bid_volume_per_hour, ask_volume_per_hour, relists_per_hour,
+        bid_competitor_count, ask_competitor_count, estimated_bid_capture_rate,
+        estimated_ask_capture_rate)`.
 
         Like `book_features`, `book_diff_metrics` accumulates one row per historical
-        snapshot pair, so "latest" has to be picked explicitly.
+        snapshot pair. Without `window_hours` the single most recent pair is returned. With
+        it, rates are averaged over the pairs ending within `window_hours` of the newest
+        one (time-weighted; competitor counts stay the latest value). Pairs longer than
+        `max_gap_hours` are skipped: across a data gap the fill model can't tell fills from
+        cancels, so those intervals carry no rate information.
         """
+        if window_hours is None:
+            return self._con.execute(
+                """
+                SELECT type_id, bid_volume_per_hour, ask_volume_per_hour, relists_per_hour,
+                       bid_competitor_count, ask_competitor_count,
+                       estimated_bid_capture_rate, estimated_ask_capture_rate
+                FROM book_diff_metrics
+                WHERE location_id = ?
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY type_id ORDER BY to_fetched_at DESC) = 1
+                """,
+                [location_id],
+            ).fetchall()
+        # Metrics rows exist only for (location, type) pairs that had a diff event in that
+        # interval, so the rate denominator must be the whole window's elapsed time (every
+        # pair in the region), not just the intervals in which this type happened to move.
         return self._con.execute(
             """
-            SELECT type_id, bid_volume_per_hour, ask_volume_per_hour, relists_per_hour,
-                   bid_competitor_count, ask_competitor_count,
-                   estimated_bid_capture_rate, estimated_ask_capture_rate
-            FROM book_diff_metrics
+            WITH newest AS (
+                SELECT MAX(to_fetched_at) AS m, ANY_VALUE(region_id) AS r
+                FROM book_diff_metrics WHERE location_id = ?
+            ),
+            usable AS (
+                SELECT b.* FROM book_diff_metrics b, newest n
+                WHERE b.region_id = n.r
+                  AND b.to_fetched_at >= n.m - to_minutes(CAST(? AS BIGINT))
+                  AND b.elapsed_hours > 0
+                  AND (? IS NULL OR b.elapsed_hours <= ?)
+            ),
+            total AS (
+                SELECT SUM(elapsed_hours) AS h FROM (
+                    SELECT DISTINCT from_snapshot_id, to_snapshot_id, elapsed_hours FROM usable
+                )
+            )
+            SELECT type_id,
+                   SUM(bid_volume_per_hour * elapsed_hours) / ANY_VALUE(total.h),
+                   SUM(ask_volume_per_hour * elapsed_hours) / ANY_VALUE(total.h),
+                   SUM(relists_per_hour * elapsed_hours) / ANY_VALUE(total.h),
+                   arg_max(bid_competitor_count, to_fetched_at),
+                   arg_max(ask_competitor_count, to_fetched_at),
+                   SUM(estimated_bid_capture_rate * elapsed_hours) / SUM(elapsed_hours),
+                   SUM(estimated_ask_capture_rate * elapsed_hours) / SUM(elapsed_hours)
+            FROM usable, total
             WHERE location_id = ?
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY type_id ORDER BY to_fetched_at DESC) = 1
+            GROUP BY type_id
             """,
-            [location_id],
+            [location_id, round(window_hours * 60), max_gap_hours, max_gap_hours, location_id],
         ).fetchall()
+
+    def diffed_pairs(self, region_id: int) -> set[tuple[str, str]]:
+        """`(from_snapshot_id, to_snapshot_id)` pairs that already have diff metrics."""
+        return {
+            (f, t)
+            for f, t in self._con.execute(
+                "SELECT DISTINCT from_snapshot_id, to_snapshot_id FROM book_diff_metrics "
+                "WHERE region_id = ?",
+                [region_id],
+            ).fetchall()
+        }
+
+    def has_book_features(self, snapshot_id: str) -> bool:
+        return (
+            self._con.execute(
+                "SELECT 1 FROM book_features WHERE snapshot_id = ? LIMIT 1", [snapshot_id]
+            ).fetchone()
+            is not None
+        )
+
+    def prune_book_features(self, before: datetime) -> int:
+        """Delete `book_features` rows computed before `before`; returns rows removed."""
+        cutoff = _to_naive_utc(before)
+        (n,) = self._con.execute(
+            "SELECT COUNT(*) FROM book_features WHERE computed_at < ?", [cutoff]
+        ).fetchone()
+        self._con.execute("DELETE FROM book_features WHERE computed_at < ?", [cutoff])
+        return n
 
     # -- SDE types --------------------------------------------------------
 
@@ -724,6 +817,14 @@ class DuckDBStore:
         return self._con.execute(
             "SELECT location_id, name FROM locations WHERE kind = 'station' ORDER BY name"
         ).fetchall()
+
+    def region_names(self) -> dict[int, str]:
+        """`region_id -> name` for every region in `locations`."""
+        return dict(
+            self._con.execute(
+                "SELECT location_id, name FROM locations WHERE kind = 'region'"
+            ).fetchall()
+        )
 
     # -- Locations (stations + regions) ------------------------------------
 
@@ -1117,3 +1218,66 @@ class DuckDBStore:
             """,
             params,
         ).fetchall()
+
+    def trade_log(self, since: datetime | None = None) -> list[tuple]:
+        """`(trade_id, run_id, type_id, type_name, logged_at, quantity, actual_buy_price,
+        actual_sell_price, plan_buy_price, plan_sell_price, notes)`, newest first. Like
+        `trades_for_report` but also carries notes and falls back to `types` for the name
+        when the trade has no matching plan line."""
+        where = ""
+        params: list[object] = []
+        if since is not None:
+            where = "WHERE t.logged_at >= ?"
+            params = [_to_naive_utc(since)]
+        return self._con.execute(
+            f"""
+            SELECT t.trade_id, t.run_id, t.type_id,
+                   COALESCE(pl.type_name, ty.name, CAST(t.type_id AS TEXT)),
+                   t.logged_at, t.quantity, t.actual_buy_price, t.actual_sell_price,
+                   pl.suggested_buy_price, pl.suggested_sell_price, t.notes
+            FROM trades t
+            LEFT JOIN plan_lines pl ON pl.run_id = t.run_id AND pl.type_id = t.type_id
+            LEFT JOIN types ty ON ty.type_id = t.type_id
+            {where}
+            ORDER BY t.logged_at DESC
+            """,
+            params,
+        ).fetchall()
+
+    # -- ops telemetry (dashboard Status screen) ---------------------------------
+
+    def write_esi_limit_sample(self, sampled_at: datetime, remain: int, reset_s: float) -> None:
+        self._con.execute(
+            "INSERT OR REPLACE INTO esi_limit_samples VALUES (?, ?, ?)",
+            [_to_naive_utc(sampled_at), remain, reset_s],
+        )
+
+    def latest_esi_limit_sample(self) -> tuple[datetime, int, float] | None:
+        """`(sampled_at, remain, reset_s)` of the newest sample, or None."""
+        return self._con.execute(
+            "SELECT sampled_at, remain, reset_s FROM esi_limit_samples "
+            "ORDER BY sampled_at DESC LIMIT 1"
+        ).fetchone()
+
+    def write_disk_sample(self, sampled_at: datetime, used_bytes: int, total_bytes: int) -> None:
+        self._con.execute(
+            "INSERT OR REPLACE INTO disk_samples VALUES (?, ?, ?)",
+            [_to_naive_utc(sampled_at), used_bytes, total_bytes],
+        )
+
+    def latest_disk_sample_time(self) -> datetime | None:
+        row = self._con.execute("SELECT MAX(sampled_at) FROM disk_samples").fetchone()
+        return _to_aware_utc(row[0]) if row and row[0] is not None else None
+
+    def disk_samples(self, since: datetime) -> list[tuple[datetime, int, int]]:
+        """`(sampled_at, used_bytes, total_bytes)` from `since`, oldest first."""
+        return self._con.execute(
+            "SELECT sampled_at, used_bytes, total_bytes FROM disk_samples "
+            "WHERE sampled_at >= ? ORDER BY sampled_at",
+            [_to_naive_utc(since)],
+        ).fetchall()
+
+    def prune_telemetry(self, before: datetime) -> None:
+        cutoff = _to_naive_utc(before)
+        self._con.execute("DELETE FROM esi_limit_samples WHERE sampled_at < ?", [cutoff])
+        self._con.execute("DELETE FROM disk_samples WHERE sampled_at < ?", [cutoff])

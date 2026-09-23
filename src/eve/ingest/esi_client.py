@@ -38,6 +38,14 @@ class EsiClient:
         self._error_limit_lock = asyncio.Lock()
         self._error_limit_remain: int | None = None
         self._error_limit_reset: float | None = None
+        # Last values ESI reported; unlike the throttle state above these are never cleared, so
+        # ops telemetry can read them after a run. None until a response carried the headers.
+        self._last_error_limit: tuple[int, float] | None = None
+
+    @property
+    def last_error_limit(self) -> tuple[int, float] | None:
+        """`(remain, reset_seconds)` from the most recent response that carried both headers."""
+        return self._last_error_limit
 
     @property
     def max_concurrency(self) -> int:
@@ -72,6 +80,8 @@ class EsiClient:
             self._error_limit_remain = int(remain)
         if reset is not None:
             self._error_limit_reset = float(reset)
+        if remain is not None and reset is not None:
+            self._last_error_limit = (int(remain), float(reset))
 
     async def _sleep_backoff(self, attempt: int) -> None:
         base = self._settings.backoff_base_seconds

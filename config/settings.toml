@@ -44,10 +44,12 @@ sde_dir = "data/sde"
 [features]
 depth_levels = 5
 near_top_pct = 0.05
+retention_days = 1 # book_features rows kept by `eve derive`
 
 [fill]
 max_gap_minutes = 60
 fill_plausibility_factor = 1.0
+metrics_window_hours = 24.0 # market making averages fill/relist rates over this window
 
 [fees]
 # NPC station broker fee: 3% - 0.3%/BR level - 0.03%/faction standing - 0.02%/corp standing,
@@ -90,7 +92,12 @@ price_tick_isk = 0.01
 target_turnover_days = 1.0
 max_capital_share_per_item = 0.1
 min_near_top_orders = 2
+max_price_deviation_pct = 25.0 # suggested buy/sell must be within this % of the 30d average price
 
 [health]
 stale_after_minutes = 20.0
 error_lookback_hours = 24.0
+
+[ui]
+haul_actionable_roi_pct = 8.0
+mm_actionable_ppd_per_isk_pct = 1.0

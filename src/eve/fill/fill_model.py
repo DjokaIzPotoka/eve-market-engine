@@ -181,9 +181,22 @@ def _snapshot_parquet_path(raw_data_dir: str, region_id: int, snapshot: Snapshot
     )
 
 
-def run_diff_for_region(store: DuckDBStore, region_id: int, settings: Settings) -> DiffRunResult:
-    """Diff every consecutive pair of retained raw snapshots for `region_id` (idempotent)."""
+def run_diff_for_region(
+    store: DuckDBStore,
+    region_id: int,
+    settings: Settings,
+    *,
+    skip_existing: bool = False,
+    since: datetime | None = None,
+) -> DiffRunResult:
+    """Diff consecutive pairs of retained raw snapshots for `region_id` (idempotent).
+
+    Default: every retained pair. `skip_existing` leaves pairs that already have metrics
+    alone and `since` ignores pairs ending before it -- together they make a cheap
+    incremental run for cron (only the snapshots that arrived since the last one).
+    """
     history = store.snapshot_history(region_id)
+    already = store.diffed_pairs(region_id) if skip_existing else set()
     event_counts: dict[str, int] = defaultdict(int)
     pairs_processed = 0
     pairs_skipped = 0
@@ -191,6 +204,10 @@ def run_diff_for_region(store: DuckDBStore, region_id: int, settings: Settings) 
     all_metrics: list[dict] = []
 
     for old_snap, new_snap in zip(history, history[1:], strict=False):
+        if (old_snap.snapshot_id, new_snap.snapshot_id) in already:
+            continue
+        if since is not None and new_snap.fetched_at < since:
+            continue
         old_path = _snapshot_parquet_path(settings.storage.raw_data_dir, region_id, old_snap)
         new_path = _snapshot_parquet_path(settings.storage.raw_data_dir, region_id, new_snap)
         if not old_path.exists() or not new_path.exists():

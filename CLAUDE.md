@@ -9,7 +9,8 @@ Two tools on one shared core:
 - `httpx` (async) for ESI, `polars` for transforms, `duckdb` + Parquet for storage
 - `pulp` (CBC) for optimization (keep solver behind an interface so OR-Tools can be swapped in)
 - `pydantic-settings` for config, `typer` for CLI, `pytest` + `ruff`
-- `fastapi` + `jinja2` + `uvicorn` for the local web dashboard (`eve serve`) — server-rendered HTML, no JS build step
+- `fastapi` + `jinja2` + `uvicorn` for the local web dashboard (`eve serve`) — server-rendered HTML (legacy, kept until the React app reaches parity)
+- `frontend/`: React + Vite + TypeScript + Tailwind + TanStack Table/Virtual. `npm run build` emits to `src/eve/web/frontend_dist/` (gitignored), served by FastAPI under `/app`. Talks to the JSON API in `web/routes/api.py` (`/api/*`; schemas in `web/api_schemas.py`, kept in sync with `frontend/src/types.ts`); `npm run dev:mock` uses canned data from `frontend/src/api/mock.ts` instead
 
 ## Layout
 ```
@@ -22,7 +23,8 @@ src/eve/
   optimize/      # shared LP/MILP core
   market_making/ # Module A
   hauling/       # Module B
-  ops/           # health check, saved plan runs, trade log, expected-vs-actual report
+  ops/           # health check, saved plan runs, trade log, expected-vs-actual report,
+                 # telemetry (ESI limit + disk samples), settings.toml write-back (tomlkit)
   web/           # FastAPI dashboard (eve serve) — routes/templates/static, thin over ops/*
   cli.py
 tests/
@@ -68,7 +70,9 @@ pattern for any new persistent-process code that touches the database.
 - `uv run pytest`
 - `uv run ruff check . && uv run ruff format .`
 - `uv run eve ingest --region 10000002`
-- `uv run eve serve` — local web dashboard at `http://127.0.0.1:8000`
+- `uv run eve derive` — refresh book features + snapshot diffs for the configured station pairs (incremental; `scripts/cron_ingest.sh` runs it after every `ingest-all`)
+- `uv run eve serve` — local web dashboard at `http://127.0.0.1:8000` (React app at `/app` after a build)
+- `cd frontend && npm run dev` — Vite dev server (proxies `/api` to a running `eve serve`); `npm run dev:mock` for canned data; `npm run build` type-checks and builds
 
 ## Working style
 - Work phase by phase; propose a plan before large changes.
