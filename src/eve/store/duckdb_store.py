@@ -448,6 +448,41 @@ class DuckDBStore:
         else:
             self._con.execute("COMMIT")
 
+    def latest_book_features(self, region_id: int, location_id: int) -> list[tuple]:
+        """One row per `type_id`: the most recent `book_features` snapshot for this
+        location. `book_features` accumulates one row per historical snapshot (nothing
+        deletes old ones), so "latest" has to be picked explicitly."""
+        return self._con.execute(
+            """
+            SELECT bf.type_id, bf.best_bid, bf.best_ask, bf.bid_orders_near_top,
+                   bf.ask_orders_near_top, bf.history_avg_7d, bf.history_avg_30d,
+                   bf.price_deviation_30d_pct
+            FROM book_features bf
+            JOIN snapshots s ON s.snapshot_id = bf.snapshot_id
+            WHERE bf.location_id = ? AND s.region_id = ?
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY bf.type_id ORDER BY s.fetched_at DESC) = 1
+            """,
+            [location_id, region_id],
+        ).fetchall()
+
+    def latest_book_diff_metrics(self, location_id: int) -> list[tuple]:
+        """One row per `type_id`: the most recent diff-interval metrics for this location.
+
+        Like `book_features`, `book_diff_metrics` accumulates one row per historical
+        snapshot pair, so "latest" has to be picked explicitly.
+        """
+        return self._con.execute(
+            """
+            SELECT type_id, bid_volume_per_hour, ask_volume_per_hour, relists_per_hour,
+                   bid_competitor_count, ask_competitor_count,
+                   estimated_bid_capture_rate, estimated_ask_capture_rate
+            FROM book_diff_metrics
+            WHERE location_id = ?
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY type_id ORDER BY to_fetched_at DESC) = 1
+            """,
+            [location_id],
+        ).fetchall()
+
     # -- SDE types --------------------------------------------------------
 
     def latest_sde_build(self) -> int | None:

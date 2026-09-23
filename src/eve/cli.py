@@ -16,6 +16,7 @@ from eve.ingest.history import ingest_history
 from eve.ingest.locations import resolve_locations
 from eve.ingest.orders import ingest_region
 from eve.ingest.sde import check_and_load_sde
+from eve.market_making.optimizer import MarketMakingPlan, solve_market_making
 from eve.store.duckdb_store import DuckDBStore
 
 app = typer.Typer(help="EVE Market Engine - market making advisor & hauling optimizer.")
@@ -109,13 +110,30 @@ def diff(region: int = typer.Option(..., help="Region ID to diff retained snapsh
     )
 
 
+def _echo_market_making_plan(plan: MarketMakingPlan) -> None:
+    typer.echo(f"station {plan.station_id}: {len(plan.lines)} item(s)")
+    for line in plan.lines:
+        typer.echo(
+            f"  {line.type_name}: buy {line.buy_price:.2f} / sell {line.sell_price:.2f} ISK, "
+            f"capital {line.capital_allocated:,.0f} ISK, "
+            f"net profit {line.net_profit_per_day:,.2f} ISK/day"
+        )
+    typer.echo(
+        f"  capital used {plan.total_capital_used:,.0f} ISK, {plan.slots_used} order slots, "
+        f"total net profit {plan.total_net_profit_per_day:,.2f} ISK/day"
+    )
+
+
 @app.command()
 def mm(
     station: int = typer.Option(..., help="Station ID to generate market making suggestions for."),
     capital: float = typer.Option(..., help="Capital available, in ISK."),
 ) -> None:
     """Suggest market making orders for a station."""
-    typer.echo("not implemented yet")
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        plan = solve_market_making(store, station, capital, settings)
+    _echo_market_making_plan(plan)
 
 
 def _echo_hauling_plan(plan: HaulingPlan) -> None:

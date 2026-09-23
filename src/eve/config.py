@@ -26,6 +26,10 @@ class Skills(BaseModel):
     accounting: SkillLevel = 0
     margin_trading: SkillLevel = 0
     advanced_broker_relations: SkillLevel = 0
+    trade: SkillLevel = 0
+    retail: SkillLevel = 0
+    wholesale: SkillLevel = 0
+    tycoon: SkillLevel = 0
 
 
 class Standings(BaseModel):
@@ -60,6 +64,32 @@ class Hauling(BaseModel):
     # Flat price haircut applied to the listing exit mode's reference price, approximating
     # the time value of waiting for a self-listed sell order to fill (vs. instant exit).
     listing_time_discount_pct: Annotated[float, Field(ge=0, lt=100)] = 5.0
+
+
+class MarketMaking(BaseModel):
+    """Market making advisor (Module A) tuning. All fee rates still come from `Fees` --
+    these are Module-A-specific modeling knobs (order slots, escrow, sizing, ranking).
+    """
+
+    # Order-slot skills (Trade/Retail/Wholesale/Tycoon), base 5 + coefficients per level --
+    # see EVE University wiki "Trading" for the current numbers.
+    base_order_slots: Annotated[int, Field(ge=1)] = 5
+    trade_slots_per_level: Annotated[int, Field(ge=0)] = 4
+    retail_slots_per_level: Annotated[int, Field(ge=0)] = 8
+    wholesale_slots_per_level: Annotated[int, Field(ge=0)] = 16
+    tycoon_slots_per_level: Annotated[int, Field(ge=0)] = 32
+    # Margin Trading multiplies buy-order escrow by this factor per skill level (V ~= 23.7%
+    # of order value, per EVE University wiki). CCP is phasing this skill out, but it's
+    # already modeled in `Skills` since Faza 0, so Module A honors it.
+    margin_trading_reduction_factor_per_level: Annotated[float, Field(gt=0, le=1)] = 0.75
+    price_tick_isk: Positive = 0.01
+    # Order size = expected daily fill * this many days of flow -- sizing beyond the
+    # market's daily throughput ties up capital without adding profit/day.
+    target_turnover_days: Positive = 1.0
+    max_capital_share_per_item: Annotated[float, Field(gt=0, le=1)] = 0.1
+    # Both sides of the book must have at least this many orders near the top before a
+    # two-sided market-making position is suggested.
+    min_near_top_orders: Annotated[int, Field(ge=1)] = 2
 
 
 class Filters(BaseModel):
@@ -136,6 +166,7 @@ class Settings(BaseSettings):
     fill: Fill
     fees: Fees
     hauling: Hauling
+    market_making: MarketMaking
 
     @classmethod
     def settings_customise_sources(

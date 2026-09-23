@@ -3,6 +3,10 @@ broker_relations = 0
 accounting = 0
 margin_trading = 0
 advanced_broker_relations = 0
+trade = 0
+retail = 0
+wholesale = 0
+tycoon = 0
 
 [standings]
 faction = 0.0
@@ -71,3 +75,15 @@ time_per_jump_minutes = 3.0
 listing_daily_volume_share = 0.1
 max_cargo_value_isk = 0.0 # 0 = bez limita
 listing_time_discount_pct = 5.0
+
+[market_making]
+base_order_slots = 5
+trade_slots_per_level = 4
+retail_slots_per_level = 8
+wholesale_slots_per_level = 16
+tycoon_slots_per_level = 32
+margin_trading_reduction_factor_per_level = 0.75
+price_tick_isk = 0.01
+target_turnover_days = 1.0
+max_capital_share_per_item = 0.1
+min_near_top_orders = 2
