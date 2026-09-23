@@ -1,8 +1,6 @@
-// Non-breaking space as thousands separator keeps digits monospaced and copy-safe.
-const NBSP = " ";
-
+// Comma as thousands separator (decimals stay a dot): 1,234,567.89
 function group(intPart: string): string {
-  return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
+  return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 export function fmtNum(n: number, decimals = 0): string {
