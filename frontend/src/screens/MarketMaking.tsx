@@ -3,7 +3,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { api } from "../api";
 import { DataTable } from "../components/DataTable";
 import { Field, NumInput, Screen } from "../components/ui";
-import { fmtIsk, fmtNum, fmtPct } from "../lib/format";
+import { fmtInt, fmtIsk, fmtNum, fmtPct } from "../lib/format";
 import { useLoad } from "../lib/useLoad";
 import type { MarketMakingRow } from "../types";
 
@@ -49,7 +49,7 @@ export function MarketMakingScreen() {
       {
         accessorKey: "expected_fills_per_day",
         header: "Fill / dan",
-        cell: (c) => fmtNum(c.getValue<number>(), 1),
+        cell: (c) => fmtNum(c.getValue<number>()),
         meta: { numeric: true, filter: "min", width: 100 },
       },
       {
@@ -96,7 +96,7 @@ export function MarketMakingScreen() {
         />
       </Field>
       <p className="ml-auto pb-1 text-dim">
-        Sortirano po profitu/dan po ISK kapitala. Označeno: ≥ {fmtNum(threshold * 100, 1)}%.
+        Sortirano po profitu/dan po ISK kapitala. Označeno: ≥ {fmtNum(threshold * 100)}%.
       </p>
     </div>
   );
@@ -108,7 +108,7 @@ export function MarketMakingScreen() {
     </span>
   ) : (
     <span className="font-mono text-[12px] text-dim">
-      {rowsQ.data ? `${fmtNum(shown)} / ${fmtNum(rows.length)} redova` : "Učitavanje…"}
+      {rowsQ.data ? `${fmtInt(shown)} / ${fmtInt(rows.length)} redova` : "Učitavanje…"}
     </span>
   );
 

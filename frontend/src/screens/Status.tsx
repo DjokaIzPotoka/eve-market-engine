@@ -1,6 +1,6 @@
 import { DiskChart } from "../components/DiskChart";
 import { KV, Panel, SegBar, Token } from "../components/ui";
-import { fmtNum, fmtRelative, fmtTimestamp } from "../lib/format";
+import { fmtInt, fmtRelative, fmtTimestamp } from "../lib/format";
 import { useStatus } from "../lib/status";
 
 export function StatusScreen() {
@@ -52,7 +52,7 @@ export function StatusScreen() {
                       <span className="text-[16px]">{fmtRelative(r.last_snapshot.fetched_at, nowMs)}</span>
                     </KV>
                     <KV k="timestamp (UTC)">{fmtTimestamp(r.last_snapshot.fetched_at)}</KV>
-                    <KV k="orderi">{fmtNum(r.last_snapshot.order_count)}</KV>
+                    <KV k="orderi">{fmtInt(r.last_snapshot.order_count)}</KV>
                     <KV k="snapshot_id">
                       <span className="text-dim">{r.last_snapshot.snapshot_id}</span>
                     </KV>
@@ -83,7 +83,7 @@ export function StatusScreen() {
             )}
             <dl className="mt-2">
               <KV k="ingest run (24h)">
-                {fmtNum(status.runs_24h_ok)} ok
+                {fmtInt(status.runs_24h_ok)} ok
                 {status.runs_24h_failed > 0 && (
                   <span className="text-sodium"> · {status.runs_24h_failed} {"✕"}</span>
                 )}

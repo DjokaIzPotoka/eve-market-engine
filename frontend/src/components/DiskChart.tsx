@@ -32,7 +32,7 @@ export function DiskChart({ samples, warnPct }: { samples: DiskSample[]; warnPct
       viewBox={`0 0 ${W} ${H}`}
       className="w-full"
       role="img"
-      aria-label={`Zauzeće diska, trenutno ${fmtNum(last.p, 0)}%, prag ${warnPct}%`}
+      aria-label={`Zauzeće diska, trenutno ${fmtNum(last.p)}%, prag ${warnPct}%`}
     >
       {ticks.map((tk) => (
         <g key={tk}>
@@ -57,7 +57,7 @@ export function DiskChart({ samples, warnPct }: { samples: DiskSample[]; warnPct
       <path d={d} fill="none" stroke="var(--color-telemetry)" strokeWidth={1.5} />
       <circle cx={x(last.t)} cy={y(last.p)} r={3} fill="var(--color-telemetry)" />
       <text x={x(last.t) - 6} y={y(last.p) - 6} textAnchor="end" fontSize={11} fill="var(--color-readout)" fontFamily="var(--font-mono)">
-        {fmtNum(last.p, 0)}%
+        {fmtNum(last.p)}%
       </text>
       <text x={padL} y={H - 4} fontSize={10} fill="var(--color-dim)" fontFamily="var(--font-mono)">
         {fmtDay(samples[0].sampled_at)}

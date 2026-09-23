@@ -241,14 +241,14 @@ export function HaulingScreen() {
         <span className={`font-mono ${clampPct(investPct) >= 90 ? "text-sodium" : ""}`}>
           {fmtNum(invested)} / {fmtNum(budget)}
           {"  "}
-          {fmtNum(clampPct(investPct), 0)}%{clampPct(investPct) >= 90 && " ▲ blizu ivice"}
+          {fmtNum(clampPct(investPct))}%{clampPct(investPct) >= 90 && " ▲ blizu ivice"}
         </span>
         <span className="text-dim">Cargo</span>
         <SegBar pct={cargoPct} label="Cargo u odnosu na kapacitet" />
         <span className={`font-mono ${clampPct(cargoPct) >= 90 ? "text-sodium" : ""}`}>
-          {fmtNum(cargoUsed, 1)} / {fmtNum(cap)} m³
+          {fmtNum(cargoUsed)} / {fmtNum(cap)} m³
           {"  "}
-          {fmtNum(clampPct(cargoPct), 0)}%{clampPct(cargoPct) >= 90 && " ▲ blizu ivice"}
+          {fmtNum(clampPct(cargoPct))}%{clampPct(cargoPct) >= 90 && " ▲ blizu ivice"}
         </span>
       </div>
       <dl className="shrink-0 border-l border-bulkhead pl-6 font-mono">

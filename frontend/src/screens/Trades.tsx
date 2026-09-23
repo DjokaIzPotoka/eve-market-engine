@@ -73,7 +73,7 @@ export function TradesScreen() {
         cell: (c) => {
           const v = c.getValue<number | null>();
           if (v == null) return <span className="text-dim">-</span>;
-          return `${v < UNDERPERFORM * 100 ? "▼ " : ""}${fmtPct(v, 0)}`;
+          return `${v < UNDERPERFORM * 100 ? "▼ " : ""}${fmtPct(v)}`;
         },
         sortUndefined: "last",
         meta: { numeric: true, filter: "max", width: 170 },
@@ -100,7 +100,7 @@ export function TradesScreen() {
       </span>
       <span>
         <span className="font-sans text-dim">Ostvareno </span>
-        {fmtNum(totAct)} {totExp > 0 && <span className="text-dim">({fmtPct((totAct / totExp) * 100, 0)})</span>}
+        {fmtNum(totAct)} {totExp > 0 && <span className="text-dim">({fmtPct((totAct / totExp) * 100)})</span>}
       </span>
       <span className={under ? "text-sodium" : "text-dim"}>
         {under ? `▼ ${under} ispod 80% očekivanog` : "nijedan ispod 80%"}

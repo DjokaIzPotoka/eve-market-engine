@@ -67,7 +67,7 @@ function TopStrip() {
       </span>
       <span className={diskHigh ? "text-sodium" : ""}>
         <span className="text-dim">DISK </span>
-        {disk != null ? `${fmtNum(disk, 0)}%` : "-"}
+        {disk != null ? `${fmtNum(disk)}%` : "-"}
       </span>
       <span className="ml-auto text-dim">
         {new Date(nowMs).toISOString().slice(11, 19)}Z

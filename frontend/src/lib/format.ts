@@ -3,7 +3,7 @@ function group(intPart: string): string {
   return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-export function fmtNum(n: number, decimals = 0): string {
+export function fmtNum(n: number, decimals = 2): string {
   if (!Number.isFinite(n)) return "-";
   const neg = n < 0 && Number(Math.abs(n).toFixed(decimals)) !== 0;
   const [i, d] = Math.abs(n).toFixed(decimals).split(".");
@@ -11,13 +11,16 @@ export function fmtNum(n: number, decimals = 0): string {
 }
 
 /** Signed with a glyph so sign never relies on color alone. */
-export function fmtSigned(n: number, decimals = 0): string {
+export function fmtSigned(n: number, decimals = 2): string {
   const s = fmtNum(n, decimals);
   return n > 0 && s !== fmtNum(0, decimals) ? "+" + s : s;
 }
 
 export const fmtIsk = (n: number) => fmtNum(n, 2);
-export const fmtPct = (n: number, d = 1) => fmtNum(n, d) + "%";
+
+/** Counts (orders, rows, runs) are whole numbers: no decimals. */
+export const fmtInt = (n: number) => fmtNum(n, 0);
+export const fmtPct = (n: number, d = 2) => fmtNum(n, d) + "%";
 
 export function fmtTimestamp(iso: string): string {
   return iso.replace("T", " ").replace(/\.\d+/, "");
