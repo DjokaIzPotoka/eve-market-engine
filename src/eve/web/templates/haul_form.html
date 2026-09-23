@@ -5,7 +5,7 @@
 {% if station_pairs %}
 <p class="hint">Quick-fill:
   {% for pair in station_pairs %}
-  <a href="/haul?from={{ pair.from_station_id }}&amp;to={{ pair.to_station_id }}">{{ pair.from_station_id }} -&gt; {{ pair.to_station_id }}</a>{% if not loop.last %} | {% endif %}
+  <a href="/haul?from={{ pair.from_station_id }}&amp;to={{ pair.to_station_id }}">{{ pair.from_station_id|station(station_names) }} -&gt; {{ pair.to_station_id|station(station_names) }}</a>{% if not loop.last %} | {% endif %}
   {% endfor %}
 </p>
 {% endif %}

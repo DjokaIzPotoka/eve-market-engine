@@ -15,8 +15,8 @@
     <td class="stale" colspan="3">NO SNAPSHOT</td>
     {% else %}
     <td class="{{ 'stale' if region.stale else 'ok' }}">{{ 'STALE' if region.stale else 'ok' }}</td>
-    <td>{{ "%.1f"|format(region.age_minutes) }} min ago</td>
-    <td>{{ region.order_count }}</td>
+    <td>{{ region.age_minutes|num(1) }} min ago</td>
+    <td>{{ region.order_count|num }}</td>
     {% endif %}
   </tr>
   {% else %}

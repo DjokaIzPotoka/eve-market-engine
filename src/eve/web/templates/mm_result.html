@@ -1,25 +1,25 @@
 {% extends "base.html" %}
 {% block title %}Market Making result{% endblock %}
 {% block content %}
-<h1>Market Making: station {{ plan.station_id }}</h1>
+<h1>Market Making: {{ plan.station_id|station(station_names) }}</h1>
 <table>
   <tr><th>Item</th><th>Buy</th><th>Sell</th><th>Capital</th><th>Profit/day</th></tr>
   {% for line in plan.lines %}
   <tr>
     <td>{{ line.type_name }}</td>
-    <td>{{ "%.2f"|format(line.buy_price) }}</td>
-    <td>{{ "%.2f"|format(line.sell_price) }}</td>
-    <td>{{ "%.0f"|format(line.capital_allocated) }}</td>
-    <td>{{ "%.2f"|format(line.net_profit_per_day) }}</td>
+    <td>{{ line.buy_price|num(2) }}</td>
+    <td>{{ line.sell_price|num(2) }}</td>
+    <td>{{ line.capital_allocated|num(0) }}</td>
+    <td>{{ line.net_profit_per_day|num(2) }}</td>
   </tr>
   {% else %}
   <tr><td colspan="5">No profitable candidates found for this station/capital.</td></tr>
   {% endfor %}
 </table>
 <p>
-  Capital used: {{ "%.0f"|format(plan.total_capital_used) }} ISK,
-  {{ plan.slots_used }} order slots,
-  total profit: {{ "%.2f"|format(plan.total_net_profit_per_day) }} ISK/day
+  Capital used: {{ plan.total_capital_used|num(0) }} ISK,
+  {{ plan.slots_used|num }} order slots,
+  total profit: {{ plan.total_net_profit_per_day|num(2) }} ISK/day
 </p>
 <p>Saved as run <a href="/plans/{{ run_id }}">{{ run_id }}</a> --
   <a href="/trades?run_id={{ run_id }}">log a trade against it</a>.</p>

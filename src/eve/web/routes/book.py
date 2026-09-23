@@ -55,5 +55,11 @@ def book_detail(
     return templates.TemplateResponse(
         request,
         "book_detail.html",
-        {"station_id": station_id, "type_id": type_id, "type_name": type_name, "row": row},
+        {
+            "station_id": station_id,
+            "type_id": type_id,
+            "type_name": type_name,
+            "row": row,
+            "station_names": dict(store.all_stations()),
+        },
     )

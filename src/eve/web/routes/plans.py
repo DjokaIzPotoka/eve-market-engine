@@ -26,7 +26,9 @@ def list_plans(
 ):
     runs = store.list_plan_runs(run_type)
     return templates.TemplateResponse(
-        request, "plans_list.html", {"runs": runs, "run_type": run_type}
+        request,
+        "plans_list.html",
+        {"runs": runs, "run_type": run_type, "station_names": dict(store.all_stations())},
     )
 
 
@@ -36,7 +38,11 @@ def plan_detail(request: Request, run_id: str, store: DuckDBStore = Depends(get_
     if run is None:
         raise HTTPException(status_code=404, detail=f"no saved plan run {run_id!r}")
     lines = store.plan_lines_for_run(run_id)
-    return templates.TemplateResponse(request, "plan_detail.html", {"run": run, "lines": lines})
+    return templates.TemplateResponse(
+        request,
+        "plan_detail.html",
+        {"run": run, "lines": lines, "station_names": dict(store.all_stations())},
+    )
 
 
 @router.get("/mm")
@@ -80,7 +86,11 @@ def mm_submit(
             status_code=400,
         )
     run_id = save_market_making_plan(store, plan, settings)
-    return templates.TemplateResponse(request, "mm_result.html", {"plan": plan, "run_id": run_id})
+    return templates.TemplateResponse(
+        request,
+        "mm_result.html",
+        {"plan": plan, "run_id": run_id, "station_names": dict(store.all_stations())},
+    )
 
 
 @router.get("/haul")
@@ -102,6 +112,7 @@ def haul_form(
             "cargo_m3": settings.cargo.default_m3,
             "station_pairs": settings.station_pairs,
             "stations": store.all_stations(),
+            "station_names": dict(store.all_stations()),
         },
     )
 
@@ -122,7 +133,12 @@ def haul_submit(
             plans = rank_station_pairs(store, settings.station_pairs, budget, cargo_m3, settings)
             run_ids = [save_hauling_plan(store, plan) for plan in plans]
             return templates.TemplateResponse(
-                request, "haul_result.html", {"plans": list(zip(plans, run_ids, strict=True))}
+                request,
+                "haul_result.html",
+                {
+                    "plans": list(zip(plans, run_ids, strict=True)),
+                    "station_names": dict(store.all_stations()),
+                },
             )
         plan = solve_hauling(store, from_station_id, to_station_id, budget, cargo_m3, settings)
     except AssertionError as exc:
@@ -136,9 +152,14 @@ def haul_submit(
                 "cargo_m3": cargo_m3,
                 "station_pairs": settings.station_pairs,
                 "stations": store.all_stations(),
+                "station_names": dict(store.all_stations()),
                 "error": str(exc),
             },
             status_code=400,
         )
     run_id = save_hauling_plan(store, plan)
-    return templates.TemplateResponse(request, "haul_result.html", {"plans": [(plan, run_id)]})
+    return templates.TemplateResponse(
+        request,
+        "haul_result.html",
+        {"plans": [(plan, run_id)], "station_names": dict(store.all_stations())},
+    )

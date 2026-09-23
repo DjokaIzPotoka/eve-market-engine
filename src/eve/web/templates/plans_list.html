@@ -14,9 +14,9 @@
     <td><a href="/plans/{{ run_id }}">{{ run_id[:8] }}</a></td>
     <td>{{ run_type }}</td>
     <td>{{ created_at }}</td>
-    <td>{{ from_station_id }}</td>
-    <td>{{ to_station_id or "" }}</td>
-    <td>{{ "%.0f"|format(total_expected_profit) }} ISK ({{ expected_profit_unit }})</td>
+    <td>{{ from_station_id|station(station_names) }}</td>
+    <td>{{ to_station_id|station(station_names) }}</td>
+    <td>{{ total_expected_profit|num(0) }} ISK ({{ expected_profit_unit }})</td>
   </tr>
   {% else %}
   <tr><td colspan="6">No saved plans yet -- run <a href="/mm">Market Making</a> or <a href="/haul">Hauling</a>.</td></tr>

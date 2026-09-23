@@ -246,6 +246,32 @@ def test_haul_submit_single_pair_saves_plan(tmp_path: Path) -> None:
     assert runs == [("haul",)]
 
 
+def test_haul_result_shows_station_names_roi_margin_and_thousands_separators(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        _seed_topology(store)
+        _seed_haul_orders(store)
+
+        response = _client(settings).post(
+            "/haul",
+            data={
+                "from_station_id": STATION_A,
+                "to_station_id": STATION_B,
+                "budget": 20_000_000,
+                "cargo_m3": 5000,
+            },
+        )
+
+    text = response.text
+    assert "<h2>Jita -&gt; Amarr</h2>" in text  # names, not 60003760 -> 60008494
+    assert "60003760 -&gt; 60008494" not in text
+    assert "ROI %" in text and "Margin %" in text
+    assert "500,000" in text  # thousands separators on quantities
+    assert "Investment: 2,500,000 ISK" in text
+
+
 def test_haul_submit_all_pairs_saves_one_plan_per_pair(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     with DuckDBStore(settings.storage.duckdb_path) as store:

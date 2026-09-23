@@ -14,9 +14,9 @@
   {% for row in by_item %}
   <tr>
     <td>{{ row.type_name or row.type_id }}</td>
-    <td>{{ "%.2f"|format(row.expected_profit) if row.expected_profit else "n/a" }}</td>
-    <td>{{ "%.2f"|format(row.actual_profit) }}</td>
-    <td>{{ row.trade_count }}</td>
+    <td>{{ row.expected_profit|num(2) if row.expected_profit else "n/a" }}</td>
+    <td>{{ row.actual_profit|num(2) }}</td>
+    <td>{{ row.trade_count|num }}</td>
   </tr>
   {% else %}
   <tr><td colspan="4">No trades logged yet -- <a href="/trades">log one</a>.</td></tr>
@@ -29,9 +29,9 @@
   {% for row in by_run %}
   <tr>
     <td>{% if row.run_id %}<a href="/plans/{{ row.run_id }}">{{ row.run_id[:8] }}</a>{% else %}(no run){% endif %}</td>
-    <td>{{ "%.2f"|format(row.expected_profit) if row.expected_profit else "n/a" }}</td>
-    <td>{{ "%.2f"|format(row.actual_profit) }}</td>
-    <td>{{ row.trade_count }}</td>
+    <td>{{ row.expected_profit|num(2) if row.expected_profit else "n/a" }}</td>
+    <td>{{ row.actual_profit|num(2) }}</td>
+    <td>{{ row.trade_count|num }}</td>
   </tr>
   {% endfor %}
 </table>

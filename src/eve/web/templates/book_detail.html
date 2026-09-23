@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 {% block title %}{{ type_name }} book{% endblock %}
 {% block content %}
-<h1>{{ type_name }} at station {{ station_id }}</h1>
+<h1>{{ type_name }} at {{ station_id|station(station_names) }}</h1>
 <table>
-  <tr><th>Best bid</th><td>{{ "%.2f"|format(row[1]) if row[1] is not none else "n/a" }}</td></tr>
-  <tr><th>Best ask</th><td>{{ "%.2f"|format(row[2]) if row[2] is not none else "n/a" }}</td></tr>
-  <tr><th>Bid orders near top</th><td>{{ row[3] }}</td></tr>
-  <tr><th>Ask orders near top</th><td>{{ row[4] }}</td></tr>
-  <tr><th>History avg (7d)</th><td>{{ "%.2f"|format(row[5]) if row[5] is not none else "n/a" }}</td></tr>
-  <tr><th>History avg (30d)</th><td>{{ "%.2f"|format(row[6]) if row[6] is not none else "n/a" }}</td></tr>
-  <tr><th>Price deviation (30d)</th><td>{{ "%.1f"|format(row[7]) ~ "%" if row[7] is not none else "n/a" }}</td></tr>
+  <tr><th>Best bid</th><td>{{ row[1]|num(2) if row[1] is not none else "n/a" }}</td></tr>
+  <tr><th>Best ask</th><td>{{ row[2]|num(2) if row[2] is not none else "n/a" }}</td></tr>
+  <tr><th>Bid orders near top</th><td>{{ row[3]|num }}</td></tr>
+  <tr><th>Ask orders near top</th><td>{{ row[4]|num }}</td></tr>
+  <tr><th>History avg (7d)</th><td>{{ row[5]|num(2) if row[5] is not none else "n/a" }}</td></tr>
+  <tr><th>History avg (30d)</th><td>{{ row[6]|num(2) if row[6] is not none else "n/a" }}</td></tr>
+  <tr><th>Price deviation (30d)</th><td>{{ row[7]|num(1) ~ "%" if row[7] is not none else "n/a" }}</td></tr>
 </table>
 <p><a href="/book?station_id={{ station_id }}">back to search</a></p>
 {% endblock %}

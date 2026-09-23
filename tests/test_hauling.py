@@ -640,3 +640,81 @@ def test_ranking_prefers_higher_profit_per_hour_over_higher_raw_profit(tmp_path:
     assert plans[1].to_station_id == STATION_B
     assert plans[0].net_profit < plans[1].net_profit
     assert plans[0].profit_per_hour > plans[1].profit_per_hour
+
+
+def test_lines_report_roi_and_margin_and_never_show_sub_unit_quantities(tmp_path: Path) -> None:
+    settings = _settings()
+    with DuckDBStore(tmp_path / "eve.duckdb") as store:
+        _seed_system_station(store, SYS_A, STATION_A)
+        _seed_system_station(store, SYS_B, STATION_B)
+        _link(store, SYS_A, SYS_B)
+        _seed_type(store, 70, packaged_volume=1.0)
+        _order(
+            store,
+            1,
+            location_id=STATION_A,
+            system_id=SYS_A,
+            is_buy=False,
+            price=10.0,
+            volume=100,
+            type_id=70,
+        )
+        _order(
+            store,
+            2,
+            location_id=STATION_B,
+            system_id=SYS_B,
+            is_buy=True,
+            price=20.0,
+            volume=100,
+            type_id=70,
+        )
+
+        plan = solve_hauling(
+            store, STATION_A, STATION_B, budget=100_000.0, cargo_m3=1000.0, settings=settings
+        )
+
+    assert plan.lines
+    for line in plan.lines:
+        assert line.quantity >= 1.0
+        assert line.roi_pct == pytest.approx(line.net_profit / (line.quantity * 10.0) * 100)
+    assert plan.roi_pct == pytest.approx(plan.net_profit / plan.total_investment * 100)
+    assert 0 < plan.margin_pct < 100
+
+
+def test_dust_quantities_are_dropped_from_lines_and_totals(tmp_path: Path) -> None:
+    """With a budget worth ~0.4 of a unit, the LP would buy a fraction -- nothing is shown."""
+    settings = _settings()
+    with DuckDBStore(tmp_path / "eve.duckdb") as store:
+        _seed_system_station(store, SYS_A, STATION_A)
+        _seed_system_station(store, SYS_B, STATION_B)
+        _link(store, SYS_A, SYS_B)
+        _seed_type(store, 71, packaged_volume=1.0)
+        _order(
+            store,
+            1,
+            location_id=STATION_A,
+            system_id=SYS_A,
+            is_buy=False,
+            price=10.0,
+            volume=100,
+            type_id=71,
+        )
+        _order(
+            store,
+            2,
+            location_id=STATION_B,
+            system_id=SYS_B,
+            is_buy=True,
+            price=20.0,
+            volume=100,
+            type_id=71,
+        )
+
+        plan = solve_hauling(
+            store, STATION_A, STATION_B, budget=4.0, cargo_m3=1000.0, settings=settings
+        )
+
+    assert plan.lines == []
+    assert plan.total_investment == 0.0
+    assert plan.net_profit == 0.0

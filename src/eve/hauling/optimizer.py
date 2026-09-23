@@ -37,6 +37,9 @@ class ShoppingListLine:
     max_buy_price: float
     exit_mode: str  # "instant" | "listing" | "mixed"
     target_sell_price: float
+    net_profit: float = 0.0
+    roi_pct: float = 0.0  # net profit / investment
+    margin_pct: float = 0.0  # net profit / gross sale revenue
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,8 @@ class HaulingPlan:
     net_profit: float
     jumps: int
     profit_per_hour: float
+    roi_pct: float = 0.0
+    margin_pct: float = 0.0
 
 
 def build_problem(
@@ -148,6 +153,10 @@ def profit_per_hour(net_profit: float, jumps: int, time_per_jump_minutes: float)
     return net_profit / hours
 
 
+def _pct(numerator: float, denominator: float) -> float:
+    return numerator / denominator * 100 if denominator > _EPS else 0.0
+
+
 @dataclass
 class _ItemAgg:
     purchase_qty: float = 0.0
@@ -157,6 +166,7 @@ class _ItemAgg:
     instant_revenue: float = 0.0
     listing_qty: float = 0.0
     listing_revenue: float = 0.0
+    net: float = 0.0  # this item's contribution to the (fee-adjusted) objective
 
 
 def solve_hauling(
@@ -186,6 +196,7 @@ def solve_hauling(
             continue
         type_id, kind, price = var_map[name]
         item = agg[type_id]
+        item.net += problem.objective.coeffs.get(name, 0.0) * value
         if kind == "purchase":
             item.purchase_qty += value
             item.investment += value * price
@@ -200,13 +211,19 @@ def solve_hauling(
     lines: list[ShoppingListLine] = []
     total_investment = 0.0
     cargo_m3_used = 0.0
+    net_profit = 0.0
+    gross_revenue = 0.0
     for type_id, item in agg.items():
-        if item.purchase_qty <= _EPS:
+        # A whole unit is the smallest thing that can actually be bought; the LP relaxation
+        # for cheap items can leave sub-unit dust that would render as "qty 0".
+        if item.purchase_qty < 1.0:
             continue
         total_investment += item.investment
         cargo_m3_used += item.purchase_qty * data.packaged_volume[type_id]
+        net_profit += item.net
         sold_qty = item.instant_qty + item.listing_qty
         revenue = item.instant_revenue + item.listing_revenue
+        gross_revenue += revenue
         if item.instant_qty > _EPS and item.listing_qty > _EPS:
             exit_mode = "mixed"
         elif item.listing_qty > _EPS:
@@ -221,10 +238,11 @@ def solve_hauling(
                 max_buy_price=item.max_buy_price,
                 exit_mode=exit_mode,
                 target_sell_price=(revenue / sold_qty) if sold_qty > _EPS else 0.0,
+                net_profit=item.net,
+                roi_pct=_pct(item.net, item.investment),
+                margin_pct=_pct(item.net, revenue),
             )
         )
-
-    net_profit = solution.objective_value
 
     assert total_investment <= budget + _EPS, "plan exceeds budget"
     assert cargo_m3_used <= cargo_m3 + _EPS, "plan exceeds cargo capacity"
@@ -251,6 +269,8 @@ def solve_hauling(
         net_profit=net_profit,
         jumps=jumps,
         profit_per_hour=profit_per_hour(net_profit, jumps, settings.hauling.time_per_jump_minutes),
+        roi_pct=_pct(net_profit, total_investment),
+        margin_pct=_pct(net_profit, gross_revenue),
     )
 
 
