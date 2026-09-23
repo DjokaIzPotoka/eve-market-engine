@@ -46,6 +46,22 @@ class StationPair(BaseModel):
     to_station_id: int
 
 
+class Hauling(BaseModel):
+    """Hauling optimizer (Module B) tuning. All fee rates still come from `Fees` --
+    these are hauling-specific modeling knobs (MILP sizing, ranking, exit-mode economics).
+    """
+
+    # Items whose cheapest source sell price exceeds this get integer MILP variables;
+    # cheaper items stay continuous (LP) for solver speed.
+    integer_price_threshold_isk: Positive = 1_000_000.0
+    time_per_jump_minutes: Positive = 3.0
+    listing_daily_volume_share: Annotated[float, Field(gt=0, le=1)] = 0.1
+    max_cargo_value_isk: NonNegative = 0.0  # 0 = no limit
+    # Flat price haircut applied to the listing exit mode's reference price, approximating
+    # the time value of waiting for a self-listed sell order to fill (vs. instant exit).
+    listing_time_discount_pct: Annotated[float, Field(ge=0, lt=100)] = 5.0
+
+
 class Filters(BaseModel):
     min_price: NonNegative = 0.0
     max_price: NonNegative = 0.0
@@ -119,6 +135,7 @@ class Settings(BaseSettings):
     features: Features
     fill: Fill
     fees: Fees
+    hauling: Hauling
 
     @classmethod
     def settings_customise_sources(

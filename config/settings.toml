@@ -64,3 +64,10 @@ accounting_reduction_fraction_per_level = 0.11
 relist_discount_base_pct = 50.0
 relist_discount_pct_per_adv_br_level = 6.0
 relist_fee_min_isk = 100.0
+
+[hauling]
+integer_price_threshold_isk = 1_000_000
+time_per_jump_minutes = 3.0
+listing_daily_volume_share = 0.1
+max_cargo_value_isk = 0.0 # 0 = bez limita
+listing_time_discount_pct = 5.0

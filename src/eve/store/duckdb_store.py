@@ -364,6 +364,30 @@ class DuckDBStore:
             [region_id],
         ).fetchall()
 
+    def sell_orders_at_location(self, location_id: int) -> list[tuple[int, int, float, int]]:
+        """`(order_id, type_id, price, volume_remain)` for sell orders at exactly this station.
+
+        Sell orders have no `range` -- a station's own listings are the only source for
+        both the purchase book (buying at the origin) and the listing reference price
+        (the current best ask at a destination), so no `region_id` scoping is needed.
+        """
+        return self._con.execute(
+            "SELECT order_id, type_id, price, volume_remain FROM orders_latest "
+            "WHERE location_id = ? AND is_buy_order = false",
+            [location_id],
+        ).fetchall()
+
+    def types_by_id(self, type_ids: list[int] | None = None) -> dict[int, tuple[str, float]]:
+        """`type_id -> (name, packaged_volume)`, optionally scoped to `type_ids`."""
+        if type_ids is None:
+            rows = self._con.execute("SELECT type_id, name, packaged_volume FROM types").fetchall()
+        else:
+            rows = self._con.execute(
+                "SELECT type_id, name, packaged_volume FROM types WHERE type_id = ANY(?)",
+                [type_ids],
+            ).fetchall()
+        return {type_id: (name, packaged_volume) for type_id, name, packaged_volume in rows}
+
     def buy_orders_for_projection(
         self, region_id: int
     ) -> list[tuple[int, int, int, int, float, int, str]]:

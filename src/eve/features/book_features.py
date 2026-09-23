@@ -11,7 +11,7 @@ import logging
 from collections import defaultdict
 
 from eve.config import Settings
-from eve.features.jump_graph import bfs_within
+from eve.features.range_projection import project_buy_orders
 from eve.store.duckdb_store import DuckDBStore
 
 logger = logging.getLogger(__name__)
@@ -59,18 +59,6 @@ def compute_book_features(
 
     target_locations = set(location_ids) if location_ids is not None else None
 
-    station_system = dict(store.station_locations())
-    system_region = store.system_region_map()
-    region_stations = [
-        loc
-        for loc, sys in station_system.items()
-        if system_region.get(sys) == region_id
-        and (target_locations is None or loc in target_locations)
-    ]
-    stations_by_system: dict[int, list[int]] = defaultdict(list)
-    for loc in region_stations:
-        stations_by_system[station_system[loc]].append(loc)
-
     sell_agg: dict[tuple[int, int], list[tuple[float, int]]] = defaultdict(list)
     for location_id, type_id, price, volume_remain in store.sell_orders(region_id):
         if target_locations is not None and location_id not in target_locations:
@@ -78,47 +66,8 @@ def compute_book_features(
         sell_agg[(location_id, type_id)].append((price, volume_remain))
 
     buy_agg: dict[tuple[int, int], list[tuple[float, int]]] = defaultdict(list)
-    graph: dict[int, set[int]] | None = None
-    bfs_cache: dict[tuple[int, int], dict[int, int]] = {}
-    unknown_ranges: set[str] = set()
-
-    for (
-        _order_id,
-        type_id,
-        location_id,
-        system_id,
-        price,
-        volume_remain,
-        range_,
-    ) in store.buy_orders_for_projection(region_id):
-        if range_ == "station":
-            covered = [location_id]
-        elif range_ == "solarsystem":
-            covered = stations_by_system.get(system_id, [])
-        elif range_ == "region":
-            covered = region_stations
-        elif range_.isdigit():
-            max_hops = int(range_)
-            if graph is None:
-                graph = store.jump_graph()
-            cache_key = (system_id, max_hops)
-            reachable = bfs_cache.get(cache_key)
-            if reachable is None:
-                reachable = bfs_within(graph, system_id, max_hops)
-                bfs_cache[cache_key] = reachable
-            covered = [loc for sys in reachable for loc in stations_by_system.get(sys, [])]
-        else:
-            unknown_ranges.add(range_)
-            continue
-
-        if target_locations is not None:
-            covered = [loc for loc in covered if loc in target_locations]
-
-        for loc in covered:
-            buy_agg[(loc, type_id)].append((price, volume_remain))
-
-    if unknown_ranges:
-        logger.warning("unrecognized order range value(s), orders skipped: %s", unknown_ranges)
+    for po in project_buy_orders(store, region_id, location_ids):
+        buy_agg[(po.location_id, po.type_id)].append((po.price, po.volume_remain))
 
     as_of = snapshot.fetched_at.date()
     history = store.history_averages(region_id, as_of)

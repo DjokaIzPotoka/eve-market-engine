@@ -10,6 +10,7 @@ import typer
 from eve.config import Settings
 from eve.features.book_features import compute_book_features
 from eve.fill.fill_model import run_diff_for_region
+from eve.hauling.optimizer import HaulingPlan, rank_station_pairs, solve_hauling
 from eve.ingest.esi_client import EsiClient
 from eve.ingest.history import ingest_history
 from eve.ingest.locations import resolve_locations
@@ -117,15 +118,45 @@ def mm(
     typer.echo("not implemented yet")
 
 
+def _echo_hauling_plan(plan: HaulingPlan) -> None:
+    typer.echo(f"{plan.from_station_id} -> {plan.to_station_id}: {len(plan.lines)} item(s)")
+    for line in plan.lines:
+        typer.echo(
+            f"  {line.type_name}: {line.quantity:.0f} @ up to {line.max_buy_price:.2f} ISK "
+            f"-> {line.exit_mode} @ {line.target_sell_price:.2f} ISK"
+        )
+    typer.echo(
+        f"  investment {plan.total_investment:,.0f} ISK, cargo {plan.cargo_m3_used:,.1f} m3, "
+        f"net profit {plan.net_profit:,.0f} ISK, {plan.jumps} jumps, "
+        f"{plan.profit_per_hour:,.0f} ISK/hour"
+    )
+
+
 @app.command()
 def haul(
-    from_: int = typer.Option(..., "--from", help="Origin station ID."),
-    to: int = typer.Option(..., help="Destination station ID."),
+    from_: int = typer.Option(
+        None, "--from", help="Origin station ID (required unless --all-pairs)."
+    ),
+    to: int = typer.Option(None, help="Destination station ID (required unless --all-pairs)."),
     budget: float = typer.Option(..., help="Budget available, in ISK."),
     cargo: float = typer.Option(..., help="Cargo capacity, in m3."),
+    all_pairs: bool = typer.Option(
+        False, "--all-pairs", help="Solve every configured station pair and rank by profit/hour."
+    ),
 ) -> None:
     """Compute the optimal hauling shopping list between two stations."""
-    typer.echo("not implemented yet")
+    settings = Settings()
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        if all_pairs:
+            plans = rank_station_pairs(store, settings.station_pairs, budget, cargo, settings)
+            for rank, plan in enumerate(plans, start=1):
+                typer.echo(f"#{rank}")
+                _echo_hauling_plan(plan)
+        else:
+            if from_ is None or to is None:
+                raise typer.BadParameter("--from and --to are required unless --all-pairs is set")
+            plan = solve_hauling(store, from_, to, budget, cargo, settings)
+            _echo_hauling_plan(plan)
 
 
 def main() -> None:
