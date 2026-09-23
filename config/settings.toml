@@ -74,7 +74,10 @@ integer_price_threshold_isk = 1_000_000
 time_per_jump_minutes = 3.0
 listing_daily_volume_share = 0.1
 max_cargo_value_isk = 0.0 # 0 = bez limita
-listing_time_discount_pct = 5.0
+listing_discount_pct_per_day = 1.0
+listing_volatility_risk_factor = 0.5
+history_window_days = 14
+default_hold_days = 1
 
 [market_making]
 base_order_slots = 5

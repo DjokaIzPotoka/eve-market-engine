@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import timedelta
 
 from eve.config import Settings
 from eve.features.range_projection import project_buy_orders
@@ -25,7 +24,8 @@ class HaulingMarketData:
     source_sell_levels: dict[int, list[BookLevel]]  # type_id -> source sell-book rows
     dest_instant_levels: dict[int, list[BookLevel]]  # type_id -> dest covering buy orders
     dest_listing_price: dict[int, float]  # type_id -> dest best ask (listing reference)
-    dest_listing_capacity: dict[int, float]  # type_id -> daily-volume-share cap, units
+    dest_daily_volume: dict[int, float]  # type_id -> avg daily traded volume (history window)
+    dest_volatility_pct: dict[int, float]  # type_id -> avg daily (high-low)/avg, in %
     packaged_volume: dict[int, float]  # type_id -> m3/unit
     type_name: dict[int, str]
 
@@ -64,14 +64,21 @@ def load_hauling_market_data(
         if current is None or price < current:
             dest_listing_price[type_id] = price
 
-    dest_listing_capacity: dict[int, float] = {}
+    dest_daily_volume: dict[int, float] = {}
+    dest_volatility_pct: dict[int, float] = {}
     if dest_region_id is not None:
         snapshot = store.latest_snapshot_meta(dest_region_id)
         if snapshot is not None:
-            target_date = snapshot.fetched_at.date() - timedelta(days=1)
-            volumes = store.history_volume_map(dest_region_id, target_date)
-            share = settings.hauling.listing_daily_volume_share
-            dest_listing_capacity = {type_id: vol * share for type_id, vol in volumes.items()}
+            stats = store.history_stats(
+                dest_region_id, snapshot.fetched_at.date(), settings.hauling.history_window_days
+            )
+            dest_daily_volume = {tid: vol for tid, (vol, _, _) in stats.items()}
+            dest_volatility_pct = {tid: vola for tid, (_, vola, _) in stats.items()}
+            # A resting ask can be an outlier on a thin item (one unit at 20x the going
+            # rate); never assume a listing sells above the recent average price.
+            for tid, (_, _, avg_price) in stats.items():
+                if tid in dest_listing_price and avg_price > 0:
+                    dest_listing_price[tid] = min(dest_listing_price[tid], avg_price)
 
     all_type_ids = set(source_sell_levels) | set(dest_instant_levels) | set(dest_listing_price)
     type_ref = store.types_by_id(list(all_type_ids))
@@ -95,8 +102,11 @@ def load_hauling_market_data(
         dest_listing_price={
             tid: p for tid, p in dest_listing_price.items() if tid in known_type_ids
         },
-        dest_listing_capacity={
-            tid: cap for tid, cap in dest_listing_capacity.items() if tid in known_type_ids
+        dest_daily_volume={
+            tid: vol for tid, vol in dest_daily_volume.items() if tid in known_type_ids
+        },
+        dest_volatility_pct={
+            tid: vola for tid, vola in dest_volatility_pct.items() if tid in known_type_ids
         },
         packaged_volume=packaged_volume,
         type_name=type_name,

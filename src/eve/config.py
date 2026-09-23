@@ -61,9 +61,15 @@ class Hauling(BaseModel):
     time_per_jump_minutes: Positive = 3.0
     listing_daily_volume_share: Annotated[float, Field(gt=0, le=1)] = 0.1
     max_cargo_value_isk: NonNegative = 0.0  # 0 = no limit
-    # Flat price haircut applied to the listing exit mode's reference price, approximating
-    # the time value of waiting for a self-listed sell order to fill (vs. instant exit).
-    listing_time_discount_pct: Annotated[float, Field(ge=0, lt=100)] = 5.0
+    # Listing exit mode: price haircut per day the goods are held, approximating the time
+    # value of tied-up capital (1 day = this %, 3 days = 3x, ...).
+    listing_discount_pct_per_day: Annotated[float, Field(ge=0, lt=100)] = 1.0
+    # Extra haircut for price risk: factor * volatility_pct * sqrt(hold_days), where
+    # volatility_pct is the average daily (highest - lowest) / average from ESI history.
+    listing_volatility_risk_factor: NonNegative = 0.5
+    # Days of destination history averaged for daily volume and volatility.
+    history_window_days: Annotated[int, Field(ge=1)] = 14
+    default_hold_days: Annotated[int, Field(ge=1)] = 1
 
 
 class MarketMaking(BaseModel):

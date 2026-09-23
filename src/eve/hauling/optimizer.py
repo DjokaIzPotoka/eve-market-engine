@@ -15,8 +15,10 @@ approximation that's immaterial for anything actually worth hauling.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Literal
 
 from eve.config import Settings, StationPair
 from eve.features.jump_graph import bfs_within
@@ -27,6 +29,19 @@ from eve.optimize.solver import solve
 from eve.store.duckdb_store import DuckDBStore
 
 _EPS = 1e-6
+# CBC reports values with ~8 significant digits, so on million-unit quantities the solution
+# can sit ~1e-2 past a bound it actually respects. Post-solve checks therefore allow a tiny
+# *relative* slack (1e-7) on top of the absolute _EPS -- still far tighter than any real
+# violation, which is why the assertions stay hard errors.
+_REL_TOL = 1e-7
+
+
+def _tol(bound: float) -> float:
+    return max(_EPS, _REL_TOL * abs(bound))
+
+
+ExitMode = Literal["instant", "listing", "both"]
+EXIT_MODES: tuple[ExitMode, ...] = ("instant", "listing", "both")
 
 
 @dataclass(frozen=True)
@@ -54,10 +69,36 @@ class HaulingPlan:
     profit_per_hour: float
     roi_pct: float = 0.0
     margin_pct: float = 0.0
+    exit_mode: str = "both"
+    hold_days: int = 1
+    # Informational only -- lanes are still ranked by profit per hour of travel (CLAUDE.md).
+    profit_per_day_incl_hold: float = 0.0
+
+
+def listing_capacity(daily_volume: float, settings: Settings, hold_days: int) -> float:
+    """Units a self-listed order can plausibly sell within `hold_days` (constant, pre-solve)."""
+    return settings.hauling.listing_daily_volume_share * daily_volume * hold_days
+
+
+def listing_effective_price(
+    ref_price: float, volatility_pct: float, settings: Settings, hold_days: int
+) -> float:
+    """Reference ask minus a time-value haircut (per day held) and a price-risk haircut
+    (volatility x sqrt(days)). Both are constants per item, so the MILP stays linear."""
+    h = settings.hauling
+    haircut_pct = h.listing_discount_pct_per_day * hold_days + (
+        h.listing_volatility_risk_factor * volatility_pct * math.sqrt(hold_days)
+    )
+    return ref_price * (1 - min(haircut_pct, 99.0) / 100)
 
 
 def build_problem(
-    data: HaulingMarketData, budget: float, cargo_m3: float, settings: Settings
+    data: HaulingMarketData,
+    budget: float,
+    cargo_m3: float,
+    settings: Settings,
+    exit_mode: ExitMode = "both",
+    hold_days: int = 1,
 ) -> tuple[Problem, dict[str, tuple[int, str, float]]]:
     """`var_map`: variable name -> `(type_id, kind, unit_price)`, `kind` in
     purchase/instant/listing."""
@@ -67,10 +108,20 @@ def build_problem(
         settings.skills, settings.standings, settings.fees, is_structure=is_dest_structure
     )
 
-    tradable_types = set(data.source_sell_levels) & (
-        set(data.dest_instant_levels)
-        | {tid for tid in data.dest_listing_price if data.dest_listing_capacity.get(tid, 0.0) > 0}
-    )
+    assert exit_mode in EXIT_MODES, f"unknown exit mode {exit_mode!r}"
+    assert hold_days >= 1, "hold_days must be at least 1"
+    allow_instant = exit_mode in ("instant", "both")
+    allow_listing = exit_mode in ("listing", "both")
+
+    def capacity(tid: int) -> float:
+        return listing_capacity(data.dest_daily_volume.get(tid, 0.0), settings, hold_days)
+
+    exits: set[int] = set()
+    if allow_instant:
+        exits |= set(data.dest_instant_levels)
+    if allow_listing:
+        exits |= {tid for tid in data.dest_listing_price if capacity(tid) > 0}
+    tradable_types = set(data.source_sell_levels) & exits
 
     variables: list[Variable] = []
     obj_coeffs: dict[str, float] = {}
@@ -93,7 +144,8 @@ def build_problem(
             cargo_coeffs[name] = pv
             balance_coeffs[type_id][name] = -1.0
 
-        for level in data.dest_instant_levels.get(type_id, []):
+        instant_levels = data.dest_instant_levels.get(type_id, []) if allow_instant else []
+        for level in instant_levels:
             name = f"y_{level.order_id}"
             revenue = level.price * (1 - sales_tax / 100)
             variables.append(Variable(name, upper=float(level.volume_remain), integer=integer))
@@ -101,14 +153,14 @@ def build_problem(
             var_map[name] = (type_id, "instant", level.price)
             balance_coeffs[type_id][name] = 1.0
 
-        if type_id in data.dest_listing_price and data.dest_listing_capacity.get(type_id, 0.0) > 0:
+        if allow_listing and type_id in data.dest_listing_price and capacity(type_id) > 0:
             ref_price = data.dest_listing_price[type_id]
-            effective_price = ref_price * (1 - settings.hauling.listing_time_discount_pct / 100)
+            effective_price = listing_effective_price(
+                ref_price, data.dest_volatility_pct.get(type_id, 0.0), settings, hold_days
+            )
             revenue = effective_price * (1 - sales_tax / 100 - broker_pct / 100)
             name = f"z_{type_id}"
-            variables.append(
-                Variable(name, upper=data.dest_listing_capacity[type_id], integer=integer)
-            )
+            variables.append(Variable(name, upper=capacity(type_id), integer=integer))
             obj_coeffs[name] = revenue
             var_map[name] = (type_id, "listing", effective_price)
             balance_coeffs[type_id][name] = 1.0
@@ -153,6 +205,14 @@ def profit_per_hour(net_profit: float, jumps: int, time_per_jump_minutes: float)
     return net_profit / hours
 
 
+def _profit_per_day(
+    net_profit: float, jumps: int, time_per_jump_minutes: float, hold_days: int
+) -> float:
+    """Profit per day of the whole cycle: travel time plus days waiting on listings."""
+    travel_days = max(jumps, 1) * time_per_jump_minutes / (60 * 24)
+    return net_profit / (travel_days + hold_days)
+
+
 def _pct(numerator: float, denominator: float) -> float:
     return numerator / denominator * 100 if denominator > _EPS else 0.0
 
@@ -176,16 +236,30 @@ def solve_hauling(
     budget: float,
     cargo_m3: float,
     settings: Settings,
+    exit_mode: ExitMode = "both",
+    hold_days: int | None = None,
 ) -> HaulingPlan:
     assert from_station_id != to_station_id, "hauling requires two distinct stations"
+    hold_days = settings.hauling.default_hold_days if hold_days is None else hold_days
 
     data = load_hauling_market_data(store, from_station_id, to_station_id, settings)
-    problem, var_map = build_problem(data, budget, cargo_m3, settings)
+    problem, var_map = build_problem(data, budget, cargo_m3, settings, exit_mode, hold_days)
     jumps = jumps_between(store, from_station_id, to_station_id)
     profit_hr = profit_per_hour(0.0, jumps, settings.hauling.time_per_jump_minutes)
 
     if not problem.variables:
-        return HaulingPlan(from_station_id, to_station_id, [], 0.0, 0.0, 0.0, jumps, profit_hr)
+        return HaulingPlan(
+            from_station_id,
+            to_station_id,
+            [],
+            0.0,
+            0.0,
+            0.0,
+            jumps,
+            profit_hr,
+            exit_mode=exit_mode,
+            hold_days=hold_days,
+        )
 
     solution = solve(problem)
     assert solution.status == "Optimal", f"hauling MILP not optimal: {solution.status}"
@@ -244,21 +318,21 @@ def solve_hauling(
             )
         )
 
-    assert total_investment <= budget + _EPS, "plan exceeds budget"
-    assert cargo_m3_used <= cargo_m3 + _EPS, "plan exceeds cargo capacity"
+    assert total_investment <= budget + _tol(budget), "plan exceeds budget"
+    assert cargo_m3_used <= cargo_m3 + _tol(cargo_m3), "plan exceeds cargo capacity"
     if settings.hauling.max_cargo_value_isk > 0:
-        assert total_investment <= settings.hauling.max_cargo_value_isk + _EPS, (
-            "plan exceeds max cargo value"
-        )
+        max_value = settings.hauling.max_cargo_value_isk
+        assert total_investment <= max_value + _tol(max_value), "plan exceeds max cargo value"
     for var in problem.variables:
         value = solution.values.get(var.name, 0.0)
-        assert value >= var.lower - _EPS, f"{var.name} below its lower bound"
+        assert value >= var.lower - _tol(var.lower), f"{var.name} below its lower bound"
         if var.upper is not None:
-            assert value <= var.upper + _EPS, f"{var.name} exceeds its available liquidity"
+            assert value <= var.upper + _tol(var.upper), (
+                f"{var.name} exceeds its available liquidity"
+            )
     for item in agg.values():
-        assert item.purchase_qty + _EPS >= item.instant_qty + item.listing_qty, (
-            "sold more than purchased"
-        )
+        sold = item.instant_qty + item.listing_qty
+        assert item.purchase_qty + _tol(sold) >= sold, "sold more than purchased"
 
     return HaulingPlan(
         from_station_id=from_station_id,
@@ -271,6 +345,14 @@ def solve_hauling(
         profit_per_hour=profit_per_hour(net_profit, jumps, settings.hauling.time_per_jump_minutes),
         roi_pct=_pct(net_profit, total_investment),
         margin_pct=_pct(net_profit, gross_revenue),
+        exit_mode=exit_mode,
+        hold_days=hold_days,
+        profit_per_day_incl_hold=_profit_per_day(
+            net_profit,
+            jumps,
+            settings.hauling.time_per_jump_minutes,
+            hold_days if any(line.exit_mode != "instant" for line in lines) else 0,
+        ),
     )
 
 
@@ -280,9 +362,20 @@ def rank_station_pairs(
     budget: float,
     cargo_m3: float,
     settings: Settings,
+    exit_mode: ExitMode = "both",
+    hold_days: int | None = None,
 ) -> list[HaulingPlan]:
     plans = [
-        solve_hauling(store, pair.from_station_id, pair.to_station_id, budget, cargo_m3, settings)
+        solve_hauling(
+            store,
+            pair.from_station_id,
+            pair.to_station_id,
+            budget,
+            cargo_m3,
+            settings,
+            exit_mode,
+            hold_days,
+        )
         for pair in station_pairs
     ]
     return sorted(plans, key=lambda plan: plan.profit_per_hour, reverse=True)

@@ -552,7 +552,7 @@ def test_listing_exit_mode_used_when_no_instant_buyer_exists(tmp_path: Path) -> 
     assert line.exit_mode == "listing"
     assert line.quantity == pytest.approx(50.0)
 
-    effective_price = 10.0 * (1 - settings.hauling.listing_time_discount_pct / 100)
+    effective_price = 10.0 * (1 - settings.hauling.listing_discount_pct_per_day / 100)
     revenue_per_unit = effective_price * (1 - tax / 100 - broker_pct / 100)
     expected_profit = 50 * (revenue_per_unit - 1.0)
     assert plan.net_profit == pytest.approx(expected_profit, rel=1e-6)

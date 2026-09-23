@@ -4,6 +4,7 @@
 <h1>Hauling result</h1>
 {% for plan, run_id in plans %}
 <h2>{{ plan.from_station_id|station(station_names) }} -&gt; {{ plan.to_station_id|station(station_names) }}</h2>
+<p class="hint">Mode: {{ plan.exit_mode }}{% if plan.exit_mode != "instant" %}, holding {{ plan.hold_days }} day{{ "s" if plan.hold_days != 1 }}{% endif %}</p>
 <table>
   <tr>
     <th>Item</th><th>Qty</th><th>Max buy</th><th>Exit</th><th>Target sell</th>
@@ -30,7 +31,8 @@
   net profit: {{ plan.net_profit|num(0) }} ISK
   (ROI {{ plan.roi_pct|num(1) }}%, margin {{ plan.margin_pct|num(1) }}%),
   {{ plan.jumps|num }} jumps,
-  {{ plan.profit_per_hour|num(0) }} ISK/hour
+  {{ plan.profit_per_hour|num(0) }} ISK/hour,
+  {{ plan.profit_per_day_incl_hold|num(0) }} ISK/day incl. holding
 </p>
 <p>Saved as run <a href="/plans/{{ run_id }}">{{ run_id }}</a> --
   <a href="/trades?run_id={{ run_id }}">log a trade against it</a>.</p>

@@ -17,6 +17,8 @@ from eve.web.templating import templates
 
 router = APIRouter()
 
+HOLD_DAY_OPTIONS = (1, 3, 7)
+
 
 @router.get("/plans")
 def list_plans(
@@ -113,6 +115,9 @@ def haul_form(
             "station_pairs": settings.station_pairs,
             "stations": store.all_stations(),
             "station_names": dict(store.all_stations()),
+            "exit_mode": "both",
+            "hold_days": settings.hauling.default_hold_days,
+            "hold_day_options": HOLD_DAY_OPTIONS,
         },
     )
 
@@ -125,12 +130,16 @@ def haul_submit(
     budget: float = Form(...),
     cargo_m3: float = Form(...),
     all_pairs: bool = Form(False),
+    exit_mode: str = Form("both"),
+    hold_days: int = Form(1),
     store: DuckDBStore = Depends(get_store),
     settings: Settings = Depends(get_settings),
 ):
     try:
         if all_pairs:
-            plans = rank_station_pairs(store, settings.station_pairs, budget, cargo_m3, settings)
+            plans = rank_station_pairs(
+                store, settings.station_pairs, budget, cargo_m3, settings, exit_mode, hold_days
+            )
             run_ids = [save_hauling_plan(store, plan) for plan in plans]
             return templates.TemplateResponse(
                 request,
@@ -140,7 +149,9 @@ def haul_submit(
                     "station_names": dict(store.all_stations()),
                 },
             )
-        plan = solve_hauling(store, from_station_id, to_station_id, budget, cargo_m3, settings)
+        plan = solve_hauling(
+            store, from_station_id, to_station_id, budget, cargo_m3, settings, exit_mode, hold_days
+        )
     except AssertionError as exc:
         return templates.TemplateResponse(
             request,
@@ -153,6 +164,9 @@ def haul_submit(
                 "station_pairs": settings.station_pairs,
                 "stations": store.all_stations(),
                 "station_names": dict(store.all_stations()),
+                "exit_mode": exit_mode,
+                "hold_days": hold_days,
+                "hold_day_options": HOLD_DAY_OPTIONS,
                 "error": str(exc),
             },
             status_code=400,

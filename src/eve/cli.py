@@ -12,7 +12,7 @@ import uvicorn
 from eve.config import Settings
 from eve.features.book_features import compute_book_features
 from eve.fill.fill_model import run_diff_for_region
-from eve.hauling.optimizer import HaulingPlan, rank_station_pairs, solve_hauling
+from eve.hauling.optimizer import EXIT_MODES, HaulingPlan, rank_station_pairs, solve_hauling
 from eve.ingest.esi_client import EsiClient
 from eve.ingest.locations import resolve_locations
 from eve.ingest.sde import check_and_load_sde
@@ -208,8 +208,13 @@ def _echo_hauling_plan(plan: HaulingPlan) -> None:
         )
     typer.echo(
         f"  investment {plan.total_investment:,.0f} ISK, cargo {plan.cargo_m3_used:,.1f} m3, "
-        f"net profit {plan.net_profit:,.0f} ISK, {plan.jumps} jumps, "
+        f"net profit {plan.net_profit:,.0f} ISK (ROI {plan.roi_pct:,.1f}%, "
+        f"margin {plan.margin_pct:,.1f}%), {plan.jumps} jumps, "
         f"{plan.profit_per_hour:,.0f} ISK/hour"
+    )
+    hold = f", hold {plan.hold_days} d" if plan.exit_mode != "instant" else ""
+    typer.echo(
+        f"  mode {plan.exit_mode}{hold}: {plan.profit_per_day_incl_hold:,.0f} ISK/day incl. holding"
     )
 
 
@@ -224,12 +229,26 @@ def haul(
     all_pairs: bool = typer.Option(
         False, "--all-pairs", help="Solve every configured station pair and rank by profit/hour."
     ),
+    exit_mode: str = typer.Option(
+        "both",
+        "--exit-mode",
+        help="instant (sell into buy orders), listing (own sell order), or both.",
+    ),
+    hold_days: int = typer.Option(
+        None, "--hold-days", help="Days to hold listings (1/3/7...); default from config."
+    ),
 ) -> None:
     """Compute the optimal hauling shopping list between two stations."""
+    if exit_mode not in EXIT_MODES:
+        raise typer.BadParameter(f"--exit-mode must be one of {', '.join(EXIT_MODES)}")
+    if hold_days is not None and hold_days < 1:
+        raise typer.BadParameter("--hold-days must be at least 1")
     settings = Settings()
     with DuckDBStore(settings.storage.duckdb_path) as store:
         if all_pairs:
-            plans = rank_station_pairs(store, settings.station_pairs, budget, cargo, settings)
+            plans = rank_station_pairs(
+                store, settings.station_pairs, budget, cargo, settings, exit_mode, hold_days
+            )
             for rank, plan in enumerate(plans, start=1):
                 typer.echo(f"#{rank}")
                 _echo_hauling_plan(plan)
@@ -238,7 +257,7 @@ def haul(
         else:
             if from_ is None or to is None:
                 raise typer.BadParameter("--from and --to are required unless --all-pairs is set")
-            plan = solve_hauling(store, from_, to, budget, cargo, settings)
+            plan = solve_hauling(store, from_, to, budget, cargo, settings, exit_mode, hold_days)
             _echo_hauling_plan(plan)
             run_id = save_hauling_plan(store, plan)
             typer.echo(

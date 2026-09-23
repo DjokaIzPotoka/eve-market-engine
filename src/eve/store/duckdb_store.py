@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -409,6 +409,32 @@ class DuckDBStore:
             [region_id, target_date],
         ).fetchall()
         return dict(rows)
+
+    def history_stats(
+        self, region_id: int, before_date: date, window_days: int
+    ) -> dict[int, tuple[float, float, float]]:
+        """`type_id -> (avg_daily_volume, volatility_pct, avg_price)` over the `window_days`
+        days strictly before `before_date`.
+
+        `volatility_pct` = mean intraday range (high - low) / average, plus the day-to-day
+        spread of the daily average price (population stddev / mean). The second term matters
+        for thin items whose price jumps *between* days while each day is a single trade
+        (intraday range 0)."""
+        rows = self._con.execute(
+            """
+            SELECT
+                type_id,
+                AVG(volume),
+                COALESCE(AVG(CASE WHEN average > 0 THEN (highest - lowest) / average * 100 END), 0)
+                    + COALESCE(STDDEV_POP(average) / NULLIF(AVG(average), 0) * 100, 0),
+                AVG(average)
+            FROM history
+            WHERE region_id = ? AND date < ? AND date >= ?
+            GROUP BY type_id
+            """,
+            [region_id, before_date, before_date - timedelta(days=window_days)],
+        ).fetchall()
+        return {t: (vol or 0.0, vola or 0.0, price or 0.0) for t, vol, vola, price in rows}
 
     def sell_orders(self, region_id: int) -> list[tuple[int, int, float, int]]:
         """`(location_id, type_id, price, volume_remain)` for every sell order in the region."""

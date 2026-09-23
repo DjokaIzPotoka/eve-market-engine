@@ -34,6 +34,24 @@
   <label>Cargo (m3)
     <input type="number" step="any" name="cargo_m3" value="{{ cargo_m3 or '' }}" required>
   </label>
+  <fieldset>
+    <legend>Exit mode</legend>
+    <label><input type="radio" name="exit_mode" value="instant" {{ "checked" if exit_mode == "instant" }}>
+      Instant (market) -- sell into existing buy orders right away</label>
+    <label><input type="radio" name="exit_mode" value="listing" {{ "checked" if exit_mode == "listing" }}>
+      Listing (limit order) -- sell through your own sell order</label>
+    <label><input type="radio" name="exit_mode" value="both" {{ "checked" if exit_mode == "both" }}>
+      Instant + listing</label>
+  </fieldset>
+  <label>Holding time (listing only)
+    <select name="hold_days">
+      {% for d in hold_day_options %}
+      <option value="{{ d }}" {{ "selected" if d == hold_days }}>{{ d }} day{{ "s" if d != 1 }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="hint">Longer holding lets you list more units (daily volume x days), but applies a
+    bigger waiting discount and a price-risk haircut for volatile items.</p>
   <label>
     <input type="checkbox" name="all_pairs" value="true">
     Solve every configured station pair and rank by profit/hour
