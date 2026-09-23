@@ -763,23 +763,39 @@ class DuckDBStore:
     def write_history(
         self, region_id: int, type_id: int, fetch_date: date, rows: list[dict]
     ) -> None:
-        """Upsert daily history rows and record the fetch-log marker (even if `rows` is empty)."""
+        """Upsert daily history rows and record the fetch-log marker (even if `rows` is empty).
+
+        Rows go in via a temp Parquet + `read_parquet` rather than one `execute()` per row --
+        duckdb's python binding costs ~12ms/row here, and a type has up to ~365 daily rows.
+        """
         self._con.execute("BEGIN TRANSACTION")
         try:
-            for row in rows:
-                self._con.execute(
-                    "INSERT OR REPLACE INTO history VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        region_id,
-                        type_id,
-                        row["date"],
-                        row["average"],
-                        row["highest"],
-                        row["lowest"],
-                        row["order_count"],
-                        row["volume"],
-                    ],
+            if rows:
+                df = pl.DataFrame(
+                    {
+                        "region_id": [region_id] * len(rows),
+                        "type_id": [type_id] * len(rows),
+                        "date": [date.fromisoformat(r["date"]) for r in rows],
+                        "average": [r["average"] for r in rows],
+                        "highest": [r["highest"] for r in rows],
+                        "lowest": [r["lowest"] for r in rows],
+                        "order_count": [r["order_count"] for r in rows],
+                        "volume": [r["volume"] for r in rows],
+                    },
+                    schema_overrides={
+                        "region_id": pl.Int64,
+                        "type_id": pl.Int64,
+                        "order_count": pl.Int64,
+                        "volume": pl.Int64,
+                    },
                 )
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    tmp_path = Path(tmp_dir) / "history.parquet"
+                    df.write_parquet(tmp_path)
+                    self._con.execute(
+                        "INSERT OR REPLACE INTO history SELECT * FROM read_parquet(?)",
+                        [str(tmp_path)],
+                    )
             self._con.execute(
                 "INSERT OR REPLACE INTO history_fetch_log VALUES (?, ?, ?, ?)",
                 [region_id, type_id, fetch_date, _to_naive_utc(datetime.now(UTC))],
