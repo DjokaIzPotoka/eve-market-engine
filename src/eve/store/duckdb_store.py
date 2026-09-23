@@ -692,6 +692,13 @@ class DuckDBStore:
             "AND system_id IS NOT NULL"
         ).fetchall()
 
+    def all_stations(self) -> list[tuple[int, str]]:
+        """`(location_id, name)` for every known NPC station, name-sorted -- backs the
+        web dashboard's station picker dropdowns."""
+        return self._con.execute(
+            "SELECT location_id, name FROM locations WHERE kind = 'station' ORDER BY name"
+        ).fetchall()
+
     # -- Locations (stations + regions) ------------------------------------
 
     def pending_station_ids(self) -> list[int]:

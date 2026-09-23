@@ -20,7 +20,14 @@ def book_search(
 ):
     results = store.search_types_by_name(q) if q else []
     return templates.TemplateResponse(
-        request, "book_search.html", {"station_id": station_id, "q": q, "results": results}
+        request,
+        "book_search.html",
+        {
+            "station_id": station_id,
+            "q": q,
+            "results": results,
+            "stations": store.all_stations(),
+        },
     )
 
 

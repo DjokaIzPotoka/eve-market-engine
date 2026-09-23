@@ -40,12 +40,20 @@ def plan_detail(request: Request, run_id: str, store: DuckDBStore = Depends(get_
 
 
 @router.get("/mm")
-def mm_form(request: Request, settings: Settings = Depends(get_settings)):
+def mm_form(
+    request: Request,
+    store: DuckDBStore = Depends(get_store),
+    settings: Settings = Depends(get_settings),
+):
     default_station = settings.station_pairs[0].from_station_id if settings.station_pairs else None
     return templates.TemplateResponse(
         request,
         "mm_form.html",
-        {"station_id": default_station, "capital": settings.budget.default_isk},
+        {
+            "station_id": default_station,
+            "capital": settings.budget.default_isk,
+            "stations": store.all_stations(),
+        },
     )
 
 
@@ -63,7 +71,12 @@ def mm_submit(
         return templates.TemplateResponse(
             request,
             "mm_form.html",
-            {"station_id": station_id, "capital": capital, "error": str(exc)},
+            {
+                "station_id": station_id,
+                "capital": capital,
+                "stations": store.all_stations(),
+                "error": str(exc),
+            },
             status_code=400,
         )
     run_id = save_market_making_plan(store, plan, settings)
@@ -75,6 +88,7 @@ def haul_form(
     request: Request,
     from_: int | None = Query(None, alias="from"),
     to: int | None = Query(None),
+    store: DuckDBStore = Depends(get_store),
     settings: Settings = Depends(get_settings),
 ):
     default_pair = settings.station_pairs[0] if settings.station_pairs else None
@@ -87,6 +101,7 @@ def haul_form(
             "budget": settings.budget.default_isk,
             "cargo_m3": settings.cargo.default_m3,
             "station_pairs": settings.station_pairs,
+            "stations": store.all_stations(),
         },
     )
 
@@ -120,6 +135,7 @@ def haul_submit(
                 "budget": budget,
                 "cargo_m3": cargo_m3,
                 "station_pairs": settings.station_pairs,
+                "stations": store.all_stations(),
                 "error": str(exc),
             },
             status_code=400,

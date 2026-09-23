@@ -3,8 +3,13 @@
 {% block content %}
 <h1>Order book lookup</h1>
 <form method="get" action="/book">
-  <label>Station ID
-    <input type="number" name="station_id" value="{{ station_id or '' }}" required>
+  <label>Station
+    <select name="station_id" required>
+      <option value="" {{ "selected" if not station_id }} disabled>choose a station</option>
+      {% for id, name in stations %}
+      <option value="{{ id }}" {{ "selected" if id == station_id }}>{{ name }} ({{ id }})</option>
+      {% endfor %}
+    </select>
   </label>
   <label>Item name contains
     <input type="text" name="q" value="{{ q or '' }}" required>

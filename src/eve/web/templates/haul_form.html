@@ -10,11 +10,23 @@
 </p>
 {% endif %}
 <form method="post" action="/haul">
-  <label>From station ID
-    <input type="number" name="from_station_id" value="{{ from_station_id or '' }}" required>
+  <label>From station
+    <select name="from_station_id" required>
+      {% for id, name in stations %}
+      <option value="{{ id }}" {{ "selected" if id == from_station_id }}>{{ name }} ({{ id }})</option>
+      {% else %}
+      <option value="" disabled>No stations known yet -- run `eve load-sde`</option>
+      {% endfor %}
+    </select>
   </label>
-  <label>To station ID
-    <input type="number" name="to_station_id" value="{{ to_station_id or '' }}" required>
+  <label>To station
+    <select name="to_station_id" required>
+      {% for id, name in stations %}
+      <option value="{{ id }}" {{ "selected" if id == to_station_id }}>{{ name }} ({{ id }})</option>
+      {% else %}
+      <option value="" disabled>No stations known yet -- run `eve load-sde`</option>
+      {% endfor %}
+    </select>
   </label>
   <label>Budget (ISK)
     <input type="number" step="any" name="budget" value="{{ budget or '' }}" required>

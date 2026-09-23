@@ -107,6 +107,24 @@ def test_write_snapshot_keeps_other_regions_untouched(tmp_path: Path) -> None:
         assert [r[0] for r in forge_rows] == [1]
 
 
+def test_all_stations_is_name_sorted(tmp_path: Path) -> None:
+    with DuckDBStore(tmp_path / "eve.duckdb") as store:
+        store._con.execute(
+            "INSERT INTO locations VALUES (?, 'station', ?, ?)", [60008494, "Amarr VIII", 30002187]
+        )
+        store._con.execute(
+            "INSERT INTO locations VALUES (?, 'station', ?, ?)",
+            [60003760, "Jita IV - Moon 4", 30000142],
+        )
+        store._con.execute(
+            "INSERT INTO locations VALUES (?, 'region', ?, ?)", [10000002, "The Forge", None]
+        )
+
+        stations = store.all_stations()
+
+    assert stations == [(60008494, "Amarr VIII"), (60003760, "Jita IV - Moon 4")]
+
+
 def test_search_types_by_name_matches_case_insensitive_and_published_only(tmp_path: Path) -> None:
     with DuckDBStore(tmp_path / "eve.duckdb") as store:
         store._con.execute(

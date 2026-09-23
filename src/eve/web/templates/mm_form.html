@@ -3,8 +3,14 @@
 {% block content %}
 <h1>Market Making</h1>
 <form method="post" action="/mm">
-  <label>Station ID
-    <input type="number" name="station_id" value="{{ station_id or '' }}" required>
+  <label>Station
+    <select name="station_id" required>
+      {% for id, name in stations %}
+      <option value="{{ id }}" {{ "selected" if id == station_id }}>{{ name }} ({{ id }})</option>
+      {% else %}
+      <option value="" disabled>No stations known yet -- run `eve load-sde`</option>
+      {% endfor %}
+    </select>
   </label>
   <label>Capital (ISK)
     <input type="number" step="any" name="capital" value="{{ capital or '' }}" required>

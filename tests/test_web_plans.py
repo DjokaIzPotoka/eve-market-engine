@@ -182,6 +182,19 @@ def test_mm_form_renders(tmp_path: Path) -> None:
     assert "Market Making" in response.text
 
 
+def test_mm_form_lists_known_stations_by_name(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    with DuckDBStore(settings.storage.duckdb_path) as store:
+        _seed_topology(store)
+
+    response = _client(settings).get("/mm")
+
+    assert response.status_code == 200
+    assert "Jita" in response.text
+    assert "Amarr" in response.text
+    assert f'value="{STATION_A}"' in response.text
+
+
 def test_mm_submit_saves_plan_and_shows_result(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     with DuckDBStore(settings.storage.duckdb_path) as store:
