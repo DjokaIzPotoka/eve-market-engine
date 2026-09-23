@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Plans{% endblock %}
+{% block content %}
+<h1>Saved plan runs</h1>
+<p>
+  <a href="/plans">all</a> |
+  <a href="/plans?run_type=mm">mm</a> |
+  <a href="/plans?run_type=haul">haul</a>
+</p>
+<table>
+  <tr><th>Run</th><th>Type</th><th>Created</th><th>From</th><th>To</th><th>Expected</th></tr>
+  {% for run_id, run_type, created_at, from_station_id, to_station_id, total_expected_profit, expected_profit_unit in runs %}
+  <tr>
+    <td><a href="/plans/{{ run_id }}">{{ run_id[:8] }}</a></td>
+    <td>{{ run_type }}</td>
+    <td>{{ created_at }}</td>
+    <td>{{ from_station_id }}</td>
+    <td>{{ to_station_id or "" }}</td>
+    <td>{{ "%.0f"|format(total_expected_profit) }} ISK ({{ expected_profit_unit }})</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6">No saved plans yet -- run <a href="/mm">Market Making</a> or <a href="/haul">Hauling</a>.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

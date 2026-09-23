@@ -519,6 +519,37 @@ class DuckDBStore:
             [location_id, region_id],
         ).fetchall()
 
+    def latest_book_features_for_type(
+        self, region_id: int, location_id: int, type_id: int
+    ) -> tuple | None:
+        """Same columns as `latest_book_features`, filtered to one `type_id` in SQL --
+        for a single-item view where fetching every type at the location would be wasteful."""
+        return self._con.execute(
+            """
+            SELECT bf.type_id, bf.best_bid, bf.best_ask, bf.bid_orders_near_top,
+                   bf.ask_orders_near_top, bf.history_avg_7d, bf.history_avg_30d,
+                   bf.price_deviation_30d_pct
+            FROM book_features bf
+            JOIN snapshots s ON s.snapshot_id = bf.snapshot_id
+            WHERE bf.location_id = ? AND s.region_id = ? AND bf.type_id = ?
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY bf.type_id ORDER BY s.fetched_at DESC) = 1
+            """,
+            [location_id, region_id, type_id],
+        ).fetchone()
+
+    def search_types_by_name(self, query: str, limit: int = 20) -> list[tuple[int, str]]:
+        """`(type_id, name)` for published types whose name contains `query`
+        (case-insensitive), name-sorted -- backs the web dashboard's item picker."""
+        return self._con.execute(
+            """
+            SELECT type_id, name FROM types
+            WHERE published = true AND name ILIKE '%' || ? || '%'
+            ORDER BY name
+            LIMIT ?
+            """,
+            [query, limit],
+        ).fetchall()
+
     def latest_book_diff_metrics(self, location_id: int) -> list[tuple]:
         """One row per `type_id`: the most recent diff-interval metrics for this location.
 
@@ -960,6 +991,24 @@ class DuckDBStore:
             "total_expected_profit, expected_profit_unit FROM plan_runs WHERE run_id = ?",
             [run_id],
         ).fetchone()
+
+    def list_plan_runs(self, run_type: str | None = None, limit: int = 50) -> list[tuple]:
+        """`(run_id, run_type, created_at, from_station_id, to_station_id,
+        total_expected_profit, expected_profit_unit)`, newest first -- backs the web
+        dashboard's plan-run listing."""
+        if run_type is None:
+            return self._con.execute(
+                "SELECT run_id, run_type, created_at, from_station_id, to_station_id, "
+                "total_expected_profit, expected_profit_unit FROM plan_runs "
+                "ORDER BY created_at DESC LIMIT ?",
+                [limit],
+            ).fetchall()
+        return self._con.execute(
+            "SELECT run_id, run_type, created_at, from_station_id, to_station_id, "
+            "total_expected_profit, expected_profit_unit FROM plan_runs "
+            "WHERE run_type = ? ORDER BY created_at DESC LIMIT ?",
+            [run_type, limit],
+        ).fetchall()
 
     def plan_lines_for_run(self, run_id: str) -> list[tuple]:
         """`(type_id, type_name, suggested_quantity, suggested_buy_price,

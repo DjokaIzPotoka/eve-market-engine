@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Hauling result{% endblock %}
+{% block content %}
+<h1>Hauling result</h1>
+{% for plan, run_id in plans %}
+<h2>{{ plan.from_station_id }} -&gt; {{ plan.to_station_id }}</h2>
+<table>
+  <tr><th>Item</th><th>Qty</th><th>Max buy</th><th>Exit</th><th>Target sell</th></tr>
+  {% for line in plan.lines %}
+  <tr>
+    <td>{{ line.type_name }}</td>
+    <td>{{ "%.0f"|format(line.quantity) }}</td>
+    <td>{{ "%.2f"|format(line.max_buy_price) }}</td>
+    <td>{{ line.exit_mode }}</td>
+    <td>{{ "%.2f"|format(line.target_sell_price) }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5">No profitable items found.</td></tr>
+  {% endfor %}
+</table>
+<p>
+  Investment: {{ "%.0f"|format(plan.total_investment) }} ISK,
+  cargo: {{ "%.1f"|format(plan.cargo_m3_used) }} m3,
+  net profit: {{ "%.0f"|format(plan.net_profit) }} ISK,
+  {{ plan.jumps }} jumps,
+  {{ "%.0f"|format(plan.profit_per_hour) }} ISK/hour
+</p>
+<p>Saved as run <a href="/plans/{{ run_id }}">{{ run_id }}</a> --
+  <a href="/trades?run_id={{ run_id }}">log a trade against it</a>.</p>
+{% endfor %}
+{% endblock %}

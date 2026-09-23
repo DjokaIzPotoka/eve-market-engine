@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}EVE Market Engine{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- Progressive enhancement only -- every page/form here works with zero JavaScript.
+       htmx is not required for correctness, only for smoother partial-page updates. -->
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+</head>
+<body>
+  <nav>
+    <a href="/">Health</a>
+    <a href="/plans">Plans</a>
+    <a href="/mm">Market Making</a>
+    <a href="/haul">Hauling</a>
+    <a href="/trades">Log Trade</a>
+    <a href="/report">Report</a>
+    <a href="/book">Book</a>
+  </nav>
+  <main>
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

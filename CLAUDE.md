@@ -9,6 +9,7 @@ Two tools on one shared core:
 - `httpx` (async) for ESI, `polars` for transforms, `duckdb` + Parquet for storage
 - `pulp` (CBC) for optimization (keep solver behind an interface so OR-Tools can be swapped in)
 - `pydantic-settings` for config, `typer` for CLI, `pytest` + `ruff`
+- `fastapi` + `jinja2` + `uvicorn` for the local web dashboard (`eve serve`) — server-rendered HTML, no JS build step
 
 ## Layout
 ```
@@ -21,12 +22,21 @@ src/eve/
   optimize/      # shared LP/MILP core
   market_making/ # Module A
   hauling/       # Module B
+  ops/           # health check, saved plan runs, trade log, expected-vs-actual report
+  web/           # FastAPI dashboard (eve serve) — routes/templates/static, thin over ops/*
   cli.py
 tests/
   fixtures/      # recorded ESI responses — tests never hit the network
 config/
   settings.toml  # skills, standings, budget, cargo, station pairs, filters
+scripts/
+  cron_ingest.sh # cron wrapper for ingest-all/ingest-history-all, see crontab.example
 ```
+
+DuckDB only allows one process to hold the database file open for read-write at a time.
+`web/deps.py` opens a fresh `DuckDBStore` per HTTP request (never one connection for the
+server's lifetime) so the cron ingest job and `eve serve` can coexist — follow the same
+pattern for any new persistent-process code that touches the database.
 
 ## Key IDs
 - The Forge region `10000002`, Jita IV-4 station `60003760`
@@ -58,6 +68,7 @@ config/
 - `uv run pytest`
 - `uv run ruff check . && uv run ruff format .`
 - `uv run eve ingest --region 10000002`
+- `uv run eve serve` — local web dashboard at `http://127.0.0.1:8000`
 
 ## Working style
 - Work phase by phase; propose a plan before large changes.

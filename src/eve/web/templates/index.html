@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Health{% endblock %}
+{% block content %}
+<h1>Health</h1>
+<p class="{{ 'healthy' if report.healthy else 'unhealthy' }}">
+  {{ 'Healthy' if report.healthy else 'UNHEALTHY' }}
+</p>
+
+<table>
+  <tr><th>Region</th><th>Status</th><th>Last snapshot</th><th>Orders</th></tr>
+  {% for region in report.regions %}
+  <tr>
+    <td>{{ region.region_id }}</td>
+    {% if region.last_snapshot_id is none %}
+    <td class="stale" colspan="3">NO SNAPSHOT</td>
+    {% else %}
+    <td class="{{ 'stale' if region.stale else 'ok' }}">{{ 'STALE' if region.stale else 'ok' }}</td>
+    <td>{{ "%.1f"|format(region.age_minutes) }} min ago</td>
+    <td>{{ region.order_count }}</td>
+    {% endif %}
+  </tr>
+  {% else %}
+  <tr><td colspan="4">No regions resolved from station_pairs -- run <code>eve load-sde</code> first.</td></tr>
+  {% endfor %}
+</table>
+
+{% if report.recent_errors %}
+<h2>Recent errors</h2>
+<ul>
+  {% for e in report.recent_errors %}
+  <li>{{ e.command }} region {{ e.region_id }}: {{ e.error_message }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

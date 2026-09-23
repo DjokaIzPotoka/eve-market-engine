@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Book{% endblock %}
+{% block content %}
+<h1>Order book lookup</h1>
+<form method="get" action="/book">
+  <label>Station ID
+    <input type="number" name="station_id" value="{{ station_id or '' }}" required>
+  </label>
+  <label>Item name contains
+    <input type="text" name="q" value="{{ q or '' }}" required>
+  </label>
+  <button type="submit">Search</button>
+</form>
+
+{% if q %}
+<h2>Results for "{{ q }}"</h2>
+<ul>
+  {% for type_id, name in results %}
+  <li>
+    {% if station_id %}
+    <a href="/book/{{ station_id }}/{{ type_id }}">{{ name }}</a>
+    {% else %}
+    {{ name }} (enter a station ID above to view its book)
+    {% endif %}
+  </li>
+  {% else %}
+  <li>No matching items.</li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

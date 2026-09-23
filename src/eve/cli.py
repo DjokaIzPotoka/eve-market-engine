@@ -7,6 +7,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 import typer
+import uvicorn
 
 from eve.config import Settings
 from eve.features.book_features import compute_book_features
@@ -26,6 +27,7 @@ from eve.ops.ingest_runner import (
 from eve.ops.plans import save_hauling_plan, save_market_making_plan
 from eve.ops.trades import log_trade, report_by_item, report_by_run
 from eve.store.duckdb_store import DuckDBStore
+from eve.web.app import create_app
 
 app = typer.Typer(help="EVE Market Engine - market making advisor & hauling optimizer.")
 
@@ -300,6 +302,15 @@ def report(
             f"  {run_label}: expected {expected} ISK, actual {row['actual_profit']:,.2f} ISK "
             f"({row['trade_count']} trade(s))"
         )
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Host/interface to bind the web dashboard to."),
+    port: int = typer.Option(8000, help="Port to bind the web dashboard to."),
+) -> None:
+    """Launch the local web dashboard (health, plan triggers, trade log, book view)."""
+    uvicorn.run(create_app(), host=host, port=port)
 
 
 def main() -> None:

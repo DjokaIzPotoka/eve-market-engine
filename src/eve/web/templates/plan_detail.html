@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Plan {{ run[0] }}{% endblock %}
+{% block content %}
+<h1>Plan {{ run[0] }}</h1>
+<p>
+  {{ run[1] }} run, created {{ run[2] }}<br>
+  station(s): {{ run[3] }}{% if run[4] %} -&gt; {{ run[4] }}{% endif %}<br>
+  total expected profit: {{ "%.0f"|format(run[5]) }} ISK ({{ run[6] }})
+</p>
+<table>
+  <tr><th>Item</th><th>Qty</th><th>Buy</th><th>Sell</th></tr>
+  {% for type_id, type_name, quantity, buy_price, sell_price in lines %}
+  <tr>
+    <td>{{ type_name or type_id }}</td>
+    <td>{{ "%.0f"|format(quantity) }}</td>
+    <td>{{ "%.2f"|format(buy_price) }}</td>
+    <td>{{ "%.2f"|format(sell_price) }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p><a href="/trades?run_id={{ run[0] }}">Log a trade against this run</a></p>
+{% endblock %}

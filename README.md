@@ -3,6 +3,14 @@
 Market making advisor and hauling optimizer for EVE Online. See `CLAUDE.md` for the
 architecture/stack overview and `PLAN.md` for the phase-by-phase build plan.
 
+## Web dashboard
+
+`uv run eve serve` starts a local dashboard at `http://127.0.0.1:8000`: health status,
+forms to trigger `mm`/`haul` from the browser (each saved run gets a link to log a trade
+against it), the trade log, the expected-vs-actual report, and a per-item order-book
+lookup. It's safe to leave running alongside the cron ingest job below -- each HTTP
+request opens its own short-lived duckdb connection, same as every CLI command.
+
 ## Operations
 
 Periodic ingest runs via cron, not a Python daemon (see `scripts/cron_ingest.sh`):

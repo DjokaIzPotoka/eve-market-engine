@@ -19,5 +19,6 @@ def test_help_lists_all_commands() -> None:
         "health",
         "log-trade",
         "report",
+        "serve",
     ):
         assert command in result.output

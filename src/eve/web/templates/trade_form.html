@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Log Trade{% endblock %}
+{% block content %}
+<h1>Log a trade</h1>
+{% if run_id %}<p class="hint">Against run {{ run_id }}</p>{% endif %}
+<form method="post" action="/trades">
+  <label>Item type ID
+    <input type="number" name="type_id" required>
+  </label>
+  <label>Quantity
+    <input type="number" step="any" name="quantity" required>
+  </label>
+  <label>Actual buy price (ISK)
+    <input type="number" step="any" name="buy_price" required>
+  </label>
+  <label>Actual sell price (ISK)
+    <input type="number" step="any" name="sell_price" required>
+  </label>
+  <label>Plan run ID (optional)
+    <input type="text" name="run_id" value="{{ run_id or '' }}">
+  </label>
+  <label>Notes (optional)
+    <input type="text" name="notes">
+  </label>
+  <button type="submit">Log trade</button>
+</form>
+{% endblock %}

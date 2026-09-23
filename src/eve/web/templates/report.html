@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Report{% endblock %}
+{% block content %}
+<h1>Expected vs. actual</h1>
+<p class="hint">
+  <a href="/report">all time</a> |
+  <a href="/report?days=7">last 7 days</a> |
+  <a href="/report?days=30">last 30 days</a>
+</p>
+
+<h2>By item</h2>
+<table>
+  <tr><th>Item</th><th>Expected</th><th>Actual</th><th>Trades</th></tr>
+  {% for row in by_item %}
+  <tr>
+    <td>{{ row.type_name or row.type_id }}</td>
+    <td>{{ "%.2f"|format(row.expected_profit) if row.expected_profit else "n/a" }}</td>
+    <td>{{ "%.2f"|format(row.actual_profit) }}</td>
+    <td>{{ row.trade_count }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4">No trades logged yet -- <a href="/trades">log one</a>.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>By run</h2>
+<table>
+  <tr><th>Run</th><th>Expected</th><th>Actual</th><th>Trades</th></tr>
+  {% for row in by_run %}
+  <tr>
+    <td>{% if row.run_id %}<a href="/plans/{{ row.run_id }}">{{ row.run_id[:8] }}</a>{% else %}(no run){% endif %}</td>
+    <td>{{ "%.2f"|format(row.expected_profit) if row.expected_profit else "n/a" }}</td>
+    <td>{{ "%.2f"|format(row.actual_profit) }}</td>
+    <td>{{ row.trade_count }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

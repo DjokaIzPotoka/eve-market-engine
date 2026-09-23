@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Hauling{% endblock %}
+{% block content %}
+<h1>Hauling</h1>
+{% if station_pairs %}
+<p class="hint">Quick-fill:
+  {% for pair in station_pairs %}
+  <a href="/haul?from={{ pair.from_station_id }}&amp;to={{ pair.to_station_id }}">{{ pair.from_station_id }} -&gt; {{ pair.to_station_id }}</a>{% if not loop.last %} | {% endif %}
+  {% endfor %}
+</p>
+{% endif %}
+<form method="post" action="/haul">
+  <label>From station ID
+    <input type="number" name="from_station_id" value="{{ from_station_id or '' }}" required>
+  </label>
+  <label>To station ID
+    <input type="number" name="to_station_id" value="{{ to_station_id or '' }}" required>
+  </label>
+  <label>Budget (ISK)
+    <input type="number" step="any" name="budget" value="{{ budget or '' }}" required>
+  </label>
+  <label>Cargo (m3)
+    <input type="number" step="any" name="cargo_m3" value="{{ cargo_m3 or '' }}" required>
+  </label>
+  <label>
+    <input type="checkbox" name="all_pairs" value="true">
+    Solve every configured station pair and rank by profit/hour
+  </label>
+  <button type="submit">Compute shopping list</button>
+</form>
+{% endblock %}

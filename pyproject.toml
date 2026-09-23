@@ -9,11 +9,15 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "duckdb>=1.5.5",
+    "fastapi>=0.141.1",
     "httpx>=0.28.1",
+    "jinja2>=3.1.6",
     "polars>=1.44.2",
     "pulp>=3.3.2",
     "pydantic-settings>=2.15.0",
+    "python-multipart>=0.0.32",
     "typer>=0.27.2",
+    "uvicorn>=0.53.0",
 ]
 
 [project.scripts]
@@ -31,7 +35,13 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["typer.Option", "typer.Argument"]
+extend-immutable-calls = [
+    "typer.Option",
+    "typer.Argument",
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Form",
+]
 
 [dependency-groups]
 dev = [
